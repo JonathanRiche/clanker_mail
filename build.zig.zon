@@ -1,0 +1,10 @@
+.{
+    .name = .clanker_mail,
+    .version = "0.0.0",
+    .fingerprint = 0xc97113bdc8e298f,
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+    },
+}
