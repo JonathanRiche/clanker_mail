@@ -1,0 +1,32 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "clanker-mail-worker",
+  "main": "src/worker.tsx",
+  "compatibility_date": "2026-04-22",
+  "artifacts": [
+    {
+      "binding": "ARTIFACTS",
+      "namespace": "default"
+    }
+  ],
+  "email": [
+    {
+      "name": "EMAIL_HANDLER"
+    }
+  ],
+  "send_email": [
+    {
+      "name": "EMAIL"
+    }
+  ],
+  "vars": {
+    "CM_DEFAULT_FORWARD_TO": "",
+    "CM_DEFAULT_JOURNAL_ADDRESS": "journal@example.com",
+    "CM_DEFAULT_CONTROL_REPO": "cm-control",
+    "CM_DEFAULT_ARCHIVE_REPO_PREFIX": "cm-mail",
+    "CM_DEFAULT_AUTOREPLY_FROM": "",
+    "CM_DEFAULT_AUTOREPLY_SUBJECT_PREFIX": "Re:",
+    "CM_DEFAULT_AUTOREPLY_TEXT": "Your message was received by the clanker_mail worker.",
+    "CM_DEFAULT_AUTOREPLY_HTML": "<p>Your message was received by the clanker_mail worker.</p>"
+  }
+}

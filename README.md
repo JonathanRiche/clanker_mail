@@ -34,6 +34,22 @@ cm
 
 This repo is still named `clanker_mail`, but the installed executable is abbreviated to `cm`.
 
+## Worker scaffold
+
+This repo now also includes a Cloudflare Worker scaffold in [worker/README.md](/home/rtg/development/clients/clanker_mail/worker/README.md).
+
+That Worker is for the agent-driven path:
+
+- inbound Email Routing handling
+- Artifacts-backed config storage
+- Artifacts-backed mailbox archives
+- an RWSDK UI for editing the routing/archive profile
+
+The Zig CLI and the Worker solve different problems:
+
+- `cm`: send outbound email directly through the Email Service REST API
+- `worker/`: receive and archive routed email, optionally forward or auto-reply, and expose a control UI
+
 ## Credentials
 
 `clanker_mail` looks for these environment variables by default:
