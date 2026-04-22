@@ -26,7 +26,8 @@ export interface DashboardModel {
 }
 
 export interface WorkerEnv {
-  ARTIFACTS: Artifacts;
+  DB: D1Database;
+  ARTIFACTS?: Artifacts;
   EMAIL: SendEmail;
   CM_DEFAULT_FORWARD_TO: string;
   CM_DEFAULT_JOURNAL_ADDRESS: string;

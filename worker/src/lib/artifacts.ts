@@ -104,6 +104,13 @@ async function getRepoAccess(
   repoName: string,
   scope: "read" | "write",
 ): Promise<RepoAccess | null> {
+  if (!env.ARTIFACTS) {
+    if (scope == "read") {
+      return null;
+    }
+    throw new Error("Artifacts binding is not configured");
+  }
+
   const repo = await env.ARTIFACTS.get(repoName);
   if (!repo) {
     if (scope == "read") {

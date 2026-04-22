@@ -6,10 +6,11 @@
   "compatibility_flags": [
     "nodejs_compat"
   ],
-  "artifacts": [
+  "d1_databases": [
     {
-      "binding": "ARTIFACTS",
-      "namespace": "default"
+      "binding": "DB",
+      "database_name": "clanker-mail",
+      "database_id": "replace-with-your-d1-database-id"
     }
   ],
   "send_email": [

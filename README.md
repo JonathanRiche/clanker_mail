@@ -15,7 +15,10 @@ That means:
 This repo contains two related pieces:
 
 - `cm`: the outbound mail CLI
-- `worker/`: an optional Cloudflare Worker for inbound Email Routing, Artifacts-backed archives, and a small control UI
+- `worker/`: an optional Cloudflare Worker for inbound Email Routing, D1-backed archives for now, and a small control UI
+
+The worker is using D1 only as a temporary fallback until Cloudflare Artifacts is available in public beta for
+this project.
 
 If all you want is outbound mail, you only need `cm`.
 If you want agents to keep a versioned mail archive, use `cm` together with the Worker.
@@ -29,7 +32,7 @@ Use it when you want to:
 - send transactional mail from scripts or automation
 - let agents send email from the command line
 - preview the exact Cloudflare JSON payload before sending
-- optionally journal sent mail into Cloudflare Email Routing and Artifacts
+- optionally journal sent mail into Cloudflare Email Routing and the Worker archive
 
 The CLI is intentionally narrow:
 
@@ -58,7 +61,7 @@ The more advanced agent-driven setup is:
 1. `cm` sends outbound mail through the Email Service REST API
 2. `cm` BCCs a journal mailbox
 3. Cloudflare Email Routing sends that journal copy to your Worker
-4. The Worker stores the message in Artifacts for agents to read as versioned files
+4. The Worker stores the message in D1 for now, with the Artifacts storage path isolated for a later switch
 
 ## Requirements
 
@@ -164,14 +167,14 @@ If you also want agent-readable archives, add the Worker path:
 2. Pick a journal mailbox such as `journal@yourdomain.com`
 3. Deploy the Worker in `worker/`
 4. Route the journal mailbox to that Worker
-5. Bind `ARTIFACTS`
+5. Bind `DB`
 6. Bind `EMAIL` if you want Worker-driven auto-replies
 7. Use `cm` with `--bcc journal@yourdomain.com`
 
 That gives you both:
 
 - direct outbound sending from `cm`
-- a mailbox archive in Artifacts that agents can inspect
+- a mailbox archive the Worker can hold in D1 until Artifacts access is ready
 
 ## Common options
 
@@ -278,8 +281,8 @@ If you want agents to use `clanker_mail` as both a sender and a mail journal, th
 1. An agent runs `cm` to send outbound mail through Cloudflare
 2. The command includes `--bcc journal@yourdomain.com`
 3. Cloudflare Email Routing sends that journal copy to the Worker
-4. The Worker writes the message into Artifacts
-5. Agents read the Artifacts repos as ordinary versioned files
+4. The Worker writes the message into D1 for now
+5. Agents read the stored mail from the Worker's backing store
 
 In practice, the command agents usually run looks like:
 
@@ -299,8 +302,8 @@ This repo includes a Worker scaffold in [worker/README.md](/home/rtg/development
 Use it when you want:
 
 - inbound Email Routing handling
-- Artifacts-backed mailbox archives
-- an Artifacts-backed control repo
+- D1-backed mailbox archives for now
+- a config store the Worker can later migrate back to Artifacts
 - a small RWSDK UI for editing the routing profile
 - optional forwarding or auto-replies from the Worker
 

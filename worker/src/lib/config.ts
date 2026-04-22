@@ -1,7 +1,5 @@
 import type { AppConfig, WorkerEnv } from "./types";
-import { readJsonFileFromRepo, writeJsonFileToRepo } from "./artifacts";
-
-export const CONTROL_REPO_CONFIG_PATH = "config/app.json";
+import { readConfigDocument, writeConfigDocument } from "./storage";
 
 export function defaultConfig(env: WorkerEnv): AppConfig {
   return {
@@ -24,7 +22,7 @@ export async function loadConfig(
   env: WorkerEnv,
 ): Promise<{ config: AppConfig; repoExists: boolean }> {
   const fallback = defaultConfig(env);
-  const json = await readJsonFileFromRepo(env, fallback.controlRepo, CONTROL_REPO_CONFIG_PATH);
+  const json = await readConfigDocument(env);
   if (!json) {
     return {
       config: fallback,
@@ -40,13 +38,7 @@ export async function loadConfig(
 
 export async function saveConfig(env: WorkerEnv, config: AppConfig): Promise<void> {
   const normalized = normalizeConfig(config, defaultConfig(env));
-  await writeJsonFileToRepo(
-    env,
-    normalized.controlRepo,
-    CONTROL_REPO_CONFIG_PATH,
-    normalized,
-    "Update clanker_mail worker configuration",
-  );
+  await writeConfigDocument(env, normalized);
 }
 
 export async function configFromFormData(

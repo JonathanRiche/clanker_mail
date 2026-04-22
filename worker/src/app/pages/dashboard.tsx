@@ -10,26 +10,26 @@ export function DashboardPage({ model }: { model: DashboardModel }) {
       <section className="masthead">
         <div>
           <span className="eyebrow">Agent Mail Control Room</span>
-          <h1 className="title">Artifacts-first email routing.</h1>
+          <h1 className="title">D1-backed email routing.</h1>
           <p className="lede">
-            This Worker treats inbound email as a versioned file tree. Messages land in mailbox-scoped
-            monthly repos, config lives in a control repo, and agents can read the result as Git remotes,
-            mounted filesystems, or ordinary files.
+            This Worker stores inbound email in D1 for now so you can ship before Artifacts access lands.
+            Config and archived mail live in SQL tables, while the archive group naming stays compatible
+            with the later Artifacts migration path.
           </p>
         </div>
         <aside className="signal-card">
           <div className="stack">
             <div className="hero-stat">
-              <strong className="mono">Control repo</strong>
-              <span className="mono">{model.config.controlRepo}</span>
+              <strong className="mono">Config store</strong>
+              <span className="mono">D1 / worker_config</span>
             </div>
             <div className="hero-stat">
-              <strong className="mono">Archive preview</strong>
+              <strong className="mono">Archive group</strong>
               <span className="mono">{model.archivePreviewRepo}</span>
             </div>
           </div>
           <div className="status good">
-            The Worker archives every routed message as raw MIME plus structured metadata inside Artifacts.
+            The Worker archives every routed message as raw MIME plus structured metadata inside D1.
           </div>
         </aside>
       </section>
@@ -39,20 +39,14 @@ export function DashboardPage({ model }: { model: DashboardModel }) {
           <p className="section-label">Routing profile</p>
           <h2 className="section-title">Mailbox and archive configuration</h2>
           <p className="section-copy">
-            Save these values into the Artifacts-backed control repo. The UI persists configuration to
-            <span className="mono"> config/app.json </span>
-            so the Worker and agents share the same source of truth.
+            Save these values into the D1-backed config row. The archive prefix remains in the config so you
+            can keep the same mailbox-group naming when you switch back to Artifacts later.
           </p>
 
           <form action="/config" method="post">
             <div className="field-grid">
               <label>
-                <span className="field-label">Control repo</span>
-                <input name="controlRepo" defaultValue={model.config.controlRepo} />
-              </label>
-
-              <label>
-                <span className="field-label">Archive repo prefix</span>
+                <span className="field-label">Archive group prefix</span>
                 <input name="archiveRepoPrefix" defaultValue={model.config.archiveRepoPrefix} />
               </label>
 
@@ -120,14 +114,14 @@ export function DashboardPage({ model }: { model: DashboardModel }) {
             <ul className="metric-list">
               <li>
                 <span className="metric-label">Archive strategy</span>
-                <span className="metric-value mono">monthly-mailbox</span>
+                <span className="metric-value mono">d1-monthly-mailbox</span>
               </li>
               <li>
-                <span className="metric-label">Archive repo</span>
+                <span className="metric-label">Archive group</span>
                 <span className="metric-value mono">{model.archivePreviewRepo}</span>
               </li>
               <li>
-                <span className="metric-label">Message entry layout</span>
+                <span className="metric-label">Message entry key</span>
                 <span className="metric-value mono">
                   messages/YYYY/MM/DD/HHMMSS-message-id/
                 </span>
@@ -141,7 +135,8 @@ export function DashboardPage({ model }: { model: DashboardModel }) {
               Each message is archived as <span className="mono">raw.eml</span>,
               <span className="mono"> headers.json</span>,
               <span className="mono"> metadata.json</span>, and
-              <span className="mono"> summary.md</span>. Agents can clone, mount, diff, or fork the repo.
+              <span className="mono"> summary.md</span> inside D1 rows for now. The archive group naming stays
+              aligned with the future Artifacts layout.
             </p>
           </article>
 
@@ -151,12 +146,12 @@ export function DashboardPage({ model }: { model: DashboardModel }) {
             <ol className="checklist">
               <li>Enable Email Routing and point the journal address at this Worker.</li>
               <li>Enable Email Sending if you want auto-replies or follow-up mail from the Worker.</li>
-              <li>Create an Artifacts namespace and bind it as <span className="mono">ARTIFACTS</span>.</li>
+              <li>Create a D1 database and bind it as <span className="mono">DB</span>.</li>
               <li>BCC outbound mail from <span className="mono">cm</span> to the journal address to build a sent-mail archive.</li>
             </ol>
             <p className="footnote">
-              The control repo can exist before the first email arrives, but it does not have to. The Worker
-              creates repos lazily the first time config or mail is written.
+              The Worker creates its D1 tables lazily on first use, so you do not need a separate migration
+              step to start testing.
             </p>
           </article>
         </div>
@@ -168,15 +163,15 @@ export function DashboardPage({ model }: { model: DashboardModel }) {
 function renderSaveState(model: DashboardModel) {
   switch (model.saveState) {
     case "saved":
-      return <span className="status good">Configuration saved to Artifacts.</span>;
+      return <span className="status good">Configuration saved to D1.</span>;
     case "error":
       return <span className="status bad">{model.errorMessage ?? "Failed to save configuration."}</span>;
     default:
       return (
         <span className="status">
           {model.configRepoExists
-            ? "This screen is reading from the control repo."
-            : "No control repo commit yet. Saving will create the repo and first commit."}
+            ? "This screen is reading from the D1 config row."
+            : "No config row yet. Saving will create it in D1."}
         </span>
       );
   }

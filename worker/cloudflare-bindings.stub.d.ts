@@ -44,6 +44,17 @@ declare interface SendEmail {
   }): Promise<void>;
 }
 
+declare interface D1PreparedStatement {
+  bind(...values: unknown[]): D1PreparedStatement;
+  first<T = Record<string, unknown>>(): Promise<T | null>;
+  run(): Promise<unknown>;
+}
+
+declare interface D1Database {
+  prepare(query: string): D1PreparedStatement;
+  exec(query: string): Promise<unknown>;
+}
+
 declare interface ForwardableEmailMessage {
   readonly from: string;
   readonly to: string;

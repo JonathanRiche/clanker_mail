@@ -1,5 +1,5 @@
 import type { AppConfig, WorkerEnv } from "./types";
-import { writeFilesToRepo } from "./artifacts";
+import { archiveStoredMessage } from "./storage";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -27,29 +27,21 @@ export async function archiveMessage(
     messageId,
   };
 
-  await writeFilesToRepo(
-    env,
-    archiveRepo,
-    [
-      {
-        path: `${entryPath}/raw.eml`,
-        contents: rawText,
-      },
-      {
-        path: `${entryPath}/headers.json`,
-        contents: JSON.stringify(headersObject, null, 2) + "\n",
-      },
-      {
-        path: `${entryPath}/metadata.json`,
-        contents: JSON.stringify(metadata, null, 2) + "\n",
-      },
-      {
-        path: `${entryPath}/summary.md`,
-        contents: buildSummaryMarkdown(metadata, headersObject),
-      },
-    ],
-    `Archive inbound email ${messageId}`,
-  );
+  await archiveStoredMessage(env, {
+    id: crypto.randomUUID(),
+    archiveGroup: archiveRepo,
+    entryPath,
+    archivedAt: timestamp,
+    messageId,
+    sender: message.from,
+    recipient: message.to,
+    subject: String(metadata.subject),
+    rawSize: message.rawSize,
+    rawEml: rawText,
+    headersJson: JSON.stringify(headersObject, null, 2),
+    metadataJson: JSON.stringify(metadata, null, 2),
+    summaryMd: buildSummaryMarkdown(metadata, headersObject),
+  });
 
   return {
     repoName: archiveRepo,

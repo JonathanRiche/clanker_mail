@@ -3,15 +3,14 @@
 This directory scaffolds the agent-driven side of `clanker_mail`:
 
 - inbound email handling with Cloudflare Email Routing
-- versioned mailbox storage in Cloudflare Artifacts
+- D1-backed mailbox storage
 - an RWSDK control UI for editing the routing profile
 - optional forwarding and auto-replies from the Worker
 
 The design assumes:
 
 - agents are the main readers and writers
-- mailbox state should be a versioned file tree
-- Artifacts is the primary store
+- D1 is the temporary store until Cloudflare Artifacts public beta access is available
 - the Zig CLI continues to handle outbound REST API sending
 
 ## Architecture
@@ -21,25 +20,27 @@ The Worker has two entrypoints in one deployment:
 - `fetch`: RWSDK UI and JSON config endpoints
 - `email`: Email Routing handler for inbound mail
 
-Configuration is stored in an Artifacts control repo:
+Configuration is stored in D1:
 
 ```text
-config/app.json
+worker_config(config_key='app')
 ```
 
-Archived messages are stored in mailbox-sharded monthly repos:
+Archived messages are stored in D1 rows grouped by the same mailbox-sharded monthly naming:
 
 ```text
 <archive-prefix>-<mailbox>-YYYY-MM
 ```
 
-Inside each archive repo, each message is written as:
+Each row stores:
 
 ```text
-messages/YYYY/MM/DD/HHMMSS-message-id/raw.eml
-messages/YYYY/MM/DD/HHMMSS-message-id/headers.json
-messages/YYYY/MM/DD/HHMMSS-message-id/metadata.json
-messages/YYYY/MM/DD/HHMMSS-message-id/summary.md
+archive_group
+entry_path
+raw_eml
+headers_json
+metadata_json
+summary_md
 ```
 
 That gives agents:
@@ -47,21 +48,17 @@ That gives agents:
 - full raw MIME
 - structured metadata
 - a simple summary file
-- Git history, diffs, and forks
+- SQL queries while you wait on Artifacts beta access
 
-## Why Artifacts first
+## Storage split
 
-This scaffold treats email as a versioned workspace, not a SQL-first dataset.
+The live worker path now uses D1.
 
-Artifacts is a better fit here when you want:
+The older Artifacts implementation is still isolated in code, but it is not imported by the current worker path.
+That keeps the later switch back to Artifacts contained to the storage layer instead of the whole app.
 
-- version-controlled mailbox trees
-- Git-native agent workflows
-- mounted filesystems via ArtifactFS
-- repo-per-mailbox or repo-per-session isolation
-- commit history for mail processing
-
-If you later need fast search or dashboard-style filtering, add D1 as a secondary index instead of making it the primary source of truth.
+This is intentionally temporary. When Artifacts public beta is available for your account, switch the live
+storage path back over and keep the rest of the Worker unchanged.
 
 ## Local project layout
 
@@ -77,9 +74,12 @@ worker/
       pages/
         dashboard.tsx
     lib/
-      artifacts.ts
       config.ts
       email.ts
+      storage/
+        d1.ts
+        index.ts
+      artifacts.ts
       types.ts
     worker.tsx
 ```
@@ -123,12 +123,12 @@ XDG_CONFIG_HOME=/tmp npx wrangler types
 
 The scaffold already includes placeholders in `wrangler.jsonc` for:
 
-- `artifacts`
+- `d1_databases`
 - `send_email`
 
 You still need to:
 
-- create or choose an Artifacts namespace
+- create or choose a D1 database
 - enable Email Routing
 - enable Email Sending if you want auto-replies
 - route a journal mailbox to this Worker in the Cloudflare dashboard
@@ -151,7 +151,7 @@ npm run dev
 
 1. Cloudflare routes `journal@yourdomain.com` to the Worker.
 2. The `email()` handler reads the message metadata and raw MIME.
-3. The Worker archives the message into an Artifacts repo.
+3. The Worker archives the message into D1.
 4. The Worker optionally forwards the message and/or sends an auto-reply.
 
 ### Outbound mail
@@ -159,14 +159,12 @@ npm run dev
 1. `cm` sends mail through the Email Service REST API.
 2. `cm` BCCs the journal mailbox.
 3. The journal copy comes back through Email Routing.
-4. The Worker archives it in Artifacts.
+4. The Worker archives it in D1.
 
 That gives you a sent-mail trail without relying on a sent-mail REST endpoint.
 
 ## Notes
 
-- This scaffold uses `isomorphic-git` plus an in-memory filesystem to commit to Artifacts from Worker code.
 - The UI lives at `/`, and `/config` exposes the current routing profile as JSON for agent tooling.
-- The code is intended as a starting point; you will likely refine repo sharding, commit batching, and parsing once you know your real mail volume.
-- For higher volume setups, prefer multiple archive repos instead of one giant shared repo.
-- If you need query-heavy analytics later, use Cloudflare GraphQL email analytics and optionally add a D1 index.
+- D1 is a reasonable short-term fallback, but large raw MIME payloads and attachments are the first pressure point.
+- The code is intended as a starting point; once Artifacts access lands, swap the storage layer instead of the whole Worker.
