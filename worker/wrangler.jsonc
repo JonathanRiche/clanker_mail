@@ -3,15 +3,11 @@
   "name": "clanker-mail-worker",
   "main": "src/worker.tsx",
   "compatibility_date": "2026-04-22",
+  "compatibility_flags": ["nodejs_compat"],
   "artifacts": [
     {
       "binding": "ARTIFACTS",
       "namespace": "default"
-    }
-  ],
-  "email": [
-    {
-      "name": "EMAIL_HANDLER"
     }
   ],
   "send_email": [

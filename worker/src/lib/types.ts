@@ -25,7 +25,7 @@ export interface DashboardModel {
   errorMessage?: string;
 }
 
-export interface Env {
+export interface WorkerEnv {
   ARTIFACTS: Artifacts;
   EMAIL: SendEmail;
   CM_DEFAULT_FORWARD_TO: string;

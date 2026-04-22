@@ -1,3 +1,4 @@
+import { env as runtimeEnv } from "cloudflare:workers";
 import { route, render } from "rwsdk/router";
 import { defineApp } from "rwsdk/worker";
 
@@ -5,27 +6,29 @@ import { DashboardPage } from "./app/pages/dashboard";
 import { Document } from "./app/document";
 import { loadConfig, configFromFormData, saveConfig } from "./lib/config";
 import { archiveMessage, maybeAutoReply, maybeForwardMessage, repoNameForMessage } from "./lib/email";
-import type { DashboardModel, Env } from "./lib/types";
+import type { DashboardModel, WorkerEnv } from "./lib/types";
+
+const workerEnv = runtimeEnv as WorkerEnv;
 
 const app = defineApp([
   render(Document, [
-    route("/", async ({ request, env }) => {
-      const { config, repoExists } = await loadConfig(env as Env);
+    route("/", async ({ request }) => {
+      const { config, repoExists } = await loadConfig(workerEnv);
       return <DashboardPage model={dashboardModel(request, config, repoExists)} />;
     }),
     route("/config", {
-      GET: async ({ request, env }) => {
-        const { config, repoExists } = await loadConfig(env as Env);
+      get: async () => {
+        const { config, repoExists } = await loadConfig(workerEnv);
         return Response.json({
           config,
           configRepoExists: repoExists,
           archivePreviewRepo: repoNameForMessage(config, config.journalAddress, new Date().toISOString()),
         });
       },
-      POST: async ({ request, env }) => {
+      post: async ({ request }) => {
         const formData = await request.formData();
-        const config = await configFromFormData(env as Env, formData);
-        await saveConfig(env as Env, config);
+        const config = await configFromFormData(workerEnv, formData);
+        await saveConfig(workerEnv, config);
 
         const url = new URL(request.url);
         url.pathname = "/";
@@ -37,8 +40,10 @@ const app = defineApp([
 ]);
 
 export default {
-  fetch: app.fetch,
-  async email(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext): Promise<void> {
+  fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
+    return app.fetch(request, env as unknown as Parameters<typeof app.fetch>[1], ctx);
+  },
+  async email(message: ForwardableEmailMessage, env: WorkerEnv, ctx: ExecutionContext): Promise<void> {
     const { config } = await loadConfig(env);
 
     const archive = await archiveMessage(env, config, message);
@@ -48,7 +53,7 @@ export default {
     await maybeForwardMessage(config, message);
     await maybeAutoReply(env, config, message);
   },
-} satisfies ExportedHandler<Env>;
+} satisfies ExportedHandler<WorkerEnv>;
 
 function dashboardModel(
   request: Request,

@@ -1,11 +1,11 @@
-import type { AppConfig, Env } from "./types";
+import type { AppConfig, WorkerEnv } from "./types";
 import { writeFilesToRepo } from "./artifacts";
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 export async function archiveMessage(
-  env: Env,
+  env: WorkerEnv,
   config: AppConfig,
   message: ForwardableEmailMessage,
 ): Promise<{ repoName: string; entryPath: string }> {
@@ -71,7 +71,7 @@ export async function maybeForwardMessage(
 }
 
 export async function maybeAutoReply(
-  env: Env,
+  env: WorkerEnv,
   config: AppConfig,
   message: ForwardableEmailMessage,
 ): Promise<void> {

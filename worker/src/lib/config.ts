@@ -1,9 +1,9 @@
-import type { AppConfig, Env } from "./types";
+import type { AppConfig, WorkerEnv } from "./types";
 import { readJsonFileFromRepo, writeJsonFileToRepo } from "./artifacts";
 
 export const CONTROL_REPO_CONFIG_PATH = "config/app.json";
 
-export function defaultConfig(env: Env): AppConfig {
+export function defaultConfig(env: WorkerEnv): AppConfig {
   return {
     controlRepo: env.CM_DEFAULT_CONTROL_REPO || "cm-control",
     archiveRepoPrefix: env.CM_DEFAULT_ARCHIVE_REPO_PREFIX || "cm-mail",
@@ -20,7 +20,9 @@ export function defaultConfig(env: Env): AppConfig {
   };
 }
 
-export async function loadConfig(env: Env): Promise<{ config: AppConfig; repoExists: boolean }> {
+export async function loadConfig(
+  env: WorkerEnv,
+): Promise<{ config: AppConfig; repoExists: boolean }> {
   const fallback = defaultConfig(env);
   const json = await readJsonFileFromRepo(env, fallback.controlRepo, CONTROL_REPO_CONFIG_PATH);
   if (!json) {
@@ -36,7 +38,7 @@ export async function loadConfig(env: Env): Promise<{ config: AppConfig; repoExi
   };
 }
 
-export async function saveConfig(env: Env, config: AppConfig): Promise<void> {
+export async function saveConfig(env: WorkerEnv, config: AppConfig): Promise<void> {
   const normalized = normalizeConfig(config, defaultConfig(env));
   await writeJsonFileToRepo(
     env,
@@ -47,7 +49,10 @@ export async function saveConfig(env: Env, config: AppConfig): Promise<void> {
   );
 }
 
-export async function configFromFormData(env: Env, formData: FormData): Promise<AppConfig> {
+export async function configFromFormData(
+  env: WorkerEnv,
+  formData: FormData,
+): Promise<AppConfig> {
   const fallback = defaultConfig(env);
 
   return normalizeConfig(

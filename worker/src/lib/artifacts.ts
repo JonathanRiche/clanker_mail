@@ -2,9 +2,10 @@ import git from "isomorphic-git";
 import http from "isomorphic-git/http/web";
 import { Volume, createFsFromVolume } from "memfs";
 
-import type { Env } from "./types";
+import type { WorkerEnv } from "./types";
 
 const REPO_DIR = "/repo";
+const decoder = new TextDecoder();
 
 interface RepoAccess {
   remote: string;
@@ -13,7 +14,7 @@ interface RepoAccess {
 }
 
 export async function readJsonFileFromRepo(
-  env: Env,
+  env: WorkerEnv,
   repoName: string,
   filePath: string,
 ): Promise<unknown | null> {
@@ -24,15 +25,15 @@ export async function readJsonFileFromRepo(
 
   const checkout = await openRepoCheckout(access);
   try {
-    const raw = await checkout.fs.promises.readFile(joinRepoPath(filePath), "utf8");
-    return JSON.parse(raw);
+    const raw = await checkout.fs.promises.readFile(joinRepoPath(filePath));
+    return JSON.parse(decodeFileContents(raw));
   } catch {
     return null;
   }
 }
 
 export async function writeJsonFileToRepo(
-  env: Env,
+  env: WorkerEnv,
   repoName: string,
   filePath: string,
   value: unknown,
@@ -47,7 +48,7 @@ export async function writeJsonFileToRepo(
 }
 
 export async function writeFilesToRepo(
-  env: Env,
+  env: WorkerEnv,
   repoName: string,
   files: Array<{ path: string; contents: string }>,
   commitMessage: string,
@@ -63,7 +64,7 @@ export async function writeFilesToRepo(
   for (const file of files) {
     const target = joinRepoPath(file.path);
     await checkout.fs.promises.mkdir(dirname(target), { recursive: true });
-    await checkout.fs.promises.writeFile(target, file.contents, "utf8");
+    await checkout.fs.promises.writeFile(target, file.contents);
     trackedFiles.push(trimRepoPath(target));
   }
 
@@ -99,7 +100,7 @@ export async function writeFilesToRepo(
 }
 
 async function getRepoAccess(
-  env: Env,
+  env: WorkerEnv,
   repoName: string,
   scope: "read" | "write",
 ): Promise<RepoAccess | null> {
@@ -204,4 +205,16 @@ function dirname(filePath: string): string {
     return REPO_DIR;
   }
   return filePath.slice(0, index);
+}
+
+function decodeFileContents(value: unknown): string {
+  if (typeof value == "string") {
+    return value;
+  }
+
+  if (value instanceof Uint8Array) {
+    return decoder.decode(value);
+  }
+
+  return String(value);
 }

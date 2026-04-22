@@ -50,6 +50,13 @@ The Zig CLI and the Worker solve different problems:
 - `cm`: send outbound email directly through the Email Service REST API
 - `worker/`: receive and archive routed email, optionally forward or auto-reply, and expose a control UI
 
+For an agent-driven setup, the intended loop is:
+
+1. `cm` sends outbound mail through Cloudflare's Email Service REST API.
+2. `cm` also BCCs the journal mailbox handled by the Worker.
+3. Cloudflare Email Routing delivers the journal copy to the Worker.
+4. The Worker archives the message into Artifacts so agents can read it as versioned files.
+
 ## Credentials
 
 `clanker_mail` looks for these environment variables by default:
@@ -145,3 +152,4 @@ This mode is useful when Cloudflare adds fields you want to use directly without
 - In normal message mode, credentials come from `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` unless you pass flags.
 - In raw payload mode, `clanker_mail` sends your JSON body as-is.
 - `--pretty` only affects CLI output formatting, not the request body sent to Cloudflare.
+- The `worker/` project has been verified locally with `npm run typecheck` and `npm run build`.

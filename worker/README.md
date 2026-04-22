@@ -93,20 +93,37 @@ cd worker
 npm install
 ```
 
-### 2. Generate Worker binding types
+### 2. Typecheck and build
+
+```bash
+npm run typecheck
+npm run build
+```
+
+This repository ships with a small local bindings shim so an agent can typecheck and build immediately after
+`npm install`.
+
+### 3. Refresh generated Wrangler types when you want exact binding output
 
 ```bash
 npx wrangler types
 ```
 
-The scaffold expects `worker-configuration.d.ts` to be generated locally by Wrangler.
+Wrangler writes `worker-configuration.d.ts`, which is ignored in git. Use that command when you want the local
+types regenerated from your real Wrangler config and account state.
 
-### 3. Configure Wrangler bindings
+If you are running inside a constrained agent environment with a read-only home directory, set a writable config
+path before Wrangler commands:
+
+```bash
+XDG_CONFIG_HOME=/tmp npx wrangler types
+```
+
+### 4. Configure Wrangler bindings
 
 The scaffold already includes placeholders in `wrangler.jsonc` for:
 
 - `artifacts`
-- `email`
 - `send_email`
 
 You still need to:
@@ -116,7 +133,10 @@ You still need to:
 - enable Email Sending if you want auto-replies
 - route a journal mailbox to this Worker in the Cloudflare dashboard
 
-### 4. Run the UI locally
+The inbound email route is configured in Cloudflare Email Routing, not as a top-level `email` field in
+`wrangler.jsonc`.
+
+### 5. Run the UI locally
 
 ```bash
 npm run dev
@@ -143,7 +163,7 @@ That gives you a sent-mail trail without relying on a sent-mail REST endpoint.
 ## Notes
 
 - This scaffold uses `isomorphic-git` plus an in-memory filesystem to commit to Artifacts from Worker code.
+- The UI lives at `/`, and `/config` exposes the current routing profile as JSON for agent tooling.
 - The code is intended as a starting point; you will likely refine repo sharding, commit batching, and parsing once you know your real mail volume.
 - For higher volume setups, prefer multiple archive repos instead of one giant shared repo.
 - If you need query-heavy analytics later, use Cloudflare GraphQL email analytics and optionally add a D1 index.
-

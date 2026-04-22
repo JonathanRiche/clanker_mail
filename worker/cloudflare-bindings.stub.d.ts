@@ -61,7 +61,11 @@ declare interface ExecutionContext {
   waitUntil(promise: Promise<unknown>): void;
 }
 
-declare interface ExportedHandler<Env = unknown> {
-  fetch?(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> | Response;
-  email?(message: ForwardableEmailMessage, env: Env, ctx: ExecutionContext): Promise<void> | void;
+declare interface ExportedHandler<TEnv = unknown> {
+  fetch?(request: Request, env: TEnv, ctx: ExecutionContext): Promise<Response> | Response;
+  email?(message: ForwardableEmailMessage, env: TEnv, ctx: ExecutionContext): Promise<void> | void;
+}
+
+declare module "cloudflare:workers" {
+  export const env: import("./src/lib/types").WorkerEnv;
 }

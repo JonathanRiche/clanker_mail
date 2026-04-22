@@ -7,12 +7,17 @@
     "strict": true,
     "jsx": "react-jsx",
     "jsxImportSource": "react",
-    "types": ["./worker-configuration.d.ts"],
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "worker-configuration.d.ts", "vite.config.mts"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "worker-configuration.d.ts",
+    "cloudflare-bindings.stub.d.ts",
+    "vite.config.mts"
+  ]
 }

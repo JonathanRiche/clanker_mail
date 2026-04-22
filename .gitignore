@@ -4,3 +4,4 @@ worker/.wrangler/
 worker/.vite/
 worker/dist/
 worker/node_modules/
+worker/worker-configuration.d.ts
