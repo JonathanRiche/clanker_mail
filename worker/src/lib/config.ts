@@ -8,7 +8,7 @@ export function defaultConfig(env: WorkerEnv): AppConfig {
     controlRepo: env.CM_DEFAULT_CONTROL_REPO || "cm-control",
     archiveRepoPrefix: env.CM_DEFAULT_ARCHIVE_REPO_PREFIX || "cm-mail",
     archiveStrategy: "monthly-mailbox",
-    journalAddress: env.CM_DEFAULT_JOURNAL_ADDRESS || "journal@example.com",
+    journalAddress: env.CM_DEFAULT_JOURNAL_ADDRESS || "",
     forwardTo: splitCsv(env.CM_DEFAULT_FORWARD_TO),
     autoReply: {
       enabled: false,

@@ -136,6 +136,9 @@ You still need to:
 The inbound email route is configured in Cloudflare Email Routing, not as a top-level `email` field in
 `wrangler.jsonc`.
 
+The default journal address is intentionally blank. Set your real journal mailbox in Cloudflare Email Routing and
+then save that same address in the Worker UI after deployment instead of committing it to git.
+
 ### 5. Run the UI locally
 
 ```bash

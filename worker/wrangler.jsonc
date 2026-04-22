@@ -3,7 +3,9 @@
   "name": "clanker-mail-worker",
   "main": "src/worker.tsx",
   "compatibility_date": "2026-04-22",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "artifacts": [
     {
       "binding": "ARTIFACTS",
@@ -17,7 +19,7 @@
   ],
   "vars": {
     "CM_DEFAULT_FORWARD_TO": "",
-    "CM_DEFAULT_JOURNAL_ADDRESS": "journal@example.com",
+    "CM_DEFAULT_JOURNAL_ADDRESS": "",
     "CM_DEFAULT_CONTROL_REPO": "cm-control",
     "CM_DEFAULT_ARCHIVE_REPO_PREFIX": "cm-mail",
     "CM_DEFAULT_AUTOREPLY_FROM": "",
