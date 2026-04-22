@@ -125,3 +125,9 @@ Inspired by [TigerStyle](https://github.com/tigerbeetle/tigerbeetle/blob/main/do
 **Comments:**
 - Explain *why* the code exists, not *what* it does
 - Document non-obvious thresholds, timing values, protocol details
+
+## Repo Skills
+
+When a task in this repo is about sending email with the local CLI, journaling mail to the Worker, or composing
+`cm` commands for agents, read [skills/clanker-mail-cli/SKILL.md](/home/rtg/development/clients/clanker_mail/skills/clanker-mail-cli/SKILL.md)
+and follow it.

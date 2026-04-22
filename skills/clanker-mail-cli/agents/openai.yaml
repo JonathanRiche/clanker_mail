@@ -1,0 +1,4 @@
+interface:
+  display_name: "clanker_mail CLI"
+  short_description: "Send and dry-run Cloudflare mail with cm"
+  default_prompt: "Use $clanker-mail-cli to build, dry-run, or send email with the cm CLI in this repo, including journaled Worker flows when needed."
