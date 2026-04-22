@@ -14,17 +14,25 @@ This project does not use a Cloudflare Worker.
 - A Cloudflare account with Email Sending configured
 - A Cloudflare API token that can send email for the target account
 
-## Build
+## Install
 
 ```bash
-zig build
+zig build install -Doptimize=ReleaseFast --prefix "/home/rtg/.local"
 ```
 
-The binary will be available at:
+That installs the CLI to:
 
 ```bash
-./zig-out/bin/clanker_mail
+/home/rtg/.local/bin/cm
 ```
+
+If `/home/rtg/.local/bin` is already in `PATH`, the command to run is simply:
+
+```bash
+cm
+```
+
+This repo is still named `clanker_mail`, but the installed executable is abbreviated to `cm`.
 
 ## Credentials
 
@@ -45,7 +53,7 @@ You only need the flags when:
 ## Basic usage
 
 ```bash
-./zig-out/bin/clanker_mail \
+cm \
   --from welcome@example.com \
   --to user@example.com \
   --subject "Welcome" \
@@ -55,7 +63,7 @@ You only need the flags when:
 With explicit credentials:
 
 ```bash
-./zig-out/bin/clanker_mail \
+cm \
   --account-id "$CLOUDFLARE_ACCOUNT_ID" \
   --api-token "$CLOUDFLARE_API_TOKEN" \
   --from welcome@example.com \
@@ -89,7 +97,7 @@ With explicit credentials:
 Use `--dry-run` to see the exact JSON body that will be sent:
 
 ```bash
-./zig-out/bin/clanker_mail \
+cm \
   --dry-run \
   --pretty \
   --from welcome@example.com \
@@ -109,7 +117,7 @@ If you want to send a hand-written Cloudflare request body, use one of:
 Example:
 
 ```bash
-./zig-out/bin/clanker_mail \
+cm \
   --payload-file payload.json \
   --pretty
 ```
@@ -121,4 +129,3 @@ This mode is useful when Cloudflare adds fields you want to use directly without
 - In normal message mode, credentials come from `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` unless you pass flags.
 - In raw payload mode, `clanker_mail` sends your JSON body as-is.
 - `--pretty` only affects CLI output formatting, not the request body sent to Cloudflare.
-
