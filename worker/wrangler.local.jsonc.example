@@ -1,0 +1,12 @@
+{
+  "vars": {
+    "CM_DEFAULT_MAIL_DOMAIN": "yourdomain.com"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "clanker-mail",
+      "database_id": "replace-with-your-real-d1-database-id"
+    }
+  ]
+}

@@ -5,3 +5,7 @@ worker/.vite/
 worker/dist/
 worker/node_modules/
 worker/worker-configuration.d.ts
+worker/wrangler.local.jsonc
+worker/wrangler.deploy.local.jsonc
+.wrangler/
+.codex

@@ -322,10 +322,20 @@ If you want Wrangler to regenerate exact local binding types:
 XDG_CONFIG_HOME=/tmp npx wrangler types
 ```
 
+Create the D1 database and local-only Wrangler config:
+
+```bash
+cd worker
+npx wrangler d1 create clanker-mail --binding DB
+cp wrangler.local.jsonc.example wrangler.local.jsonc
+```
+
 Then deploy:
 
 ```bash
-npm run release
+cd worker
+npm run build
+npx wrangler deploy dist/worker/index.js --config dist/worker/wrangler.json
 ```
 
 After deployment:
