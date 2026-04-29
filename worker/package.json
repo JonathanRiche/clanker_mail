@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "release": "vite build && wrangler deploy",
+    "build:deploy": "CM_WRANGLER_CONFIG=wrangler.deploy.local.jsonc vite build",
+    "release": "npm run build:deploy && wrangler deploy",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

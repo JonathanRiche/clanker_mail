@@ -7,5 +7,4 @@ run = "zig build install -Doptimize=ReleaseFast --prefix ${HOME}/.local"
 
 [tasks.deploy]
 description = "Deploy the worker with the local deploy config"
-run = "cd worker && npx wrangler deploy --config wrangler.deploy.local.jsonc"
-
+run = "cd worker && npm run release"
