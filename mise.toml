@@ -1,2 +1,7 @@
 [tools]
 zig = "0.16"
+
+[tasks.build]
+description = "Build the project"
+run = "zig build install -Doptimize=ReleaseFast --prefix ${HOME}/.local"
+
