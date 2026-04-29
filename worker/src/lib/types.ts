@@ -20,11 +20,26 @@ export interface ArchivedMessageListItem {
   rawSize: number;
 }
 
+export interface ArchivedMessageParticipants {
+  from: string[];
+  replyTo: string[];
+  to: string[];
+  cc: string[];
+}
+
+export interface ArchivedMessageThreadContext {
+  replySubject: string;
+  inReplyTo: string;
+  references: string[];
+}
+
 export interface ArchivedMessageDetail extends ArchivedMessageListItem {
   rawEml: string;
   headers: Record<string, string>;
   metadata: Record<string, unknown>;
   summaryMd: string;
+  participants: ArchivedMessageParticipants;
+  thread: ArchivedMessageThreadContext;
 }
 
 export interface AppConfig {

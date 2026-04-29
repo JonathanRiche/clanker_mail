@@ -27,6 +27,14 @@ The productized read path is exposed from `fetch`:
 
 Both endpoints require `Authorization: Bearer <CM_READ_API_TOKEN>`.
 
+The detail endpoint also returns parsed reply context derived from the archived message headers so `cm reply`
+can construct:
+
+- reply subject handling
+- `In-Reply-To`
+- `References`
+- reply vs reply-all recipient sets
+
 Configuration is stored in D1:
 
 ```text
@@ -170,6 +178,7 @@ npm run dev
 3. The Worker archives the message into D1.
 4. The Worker optionally forwards the message and/or sends an auto-reply.
 5. `cm read` fetches recent messages or one message by ID through the authenticated Worker API.
+6. `cm reply` uses that same detail API to construct thread-aware outbound replies.
 
 ### Outbound mail
 

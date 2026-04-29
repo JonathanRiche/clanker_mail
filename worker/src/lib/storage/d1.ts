@@ -191,6 +191,17 @@ export async function getArchivedMessage(
     headers: parseHeaders(row.headers_json),
     metadata: parseMetadata(row.metadata_json),
     summaryMd: row.summary_md,
+    participants: {
+      from: [],
+      replyTo: [],
+      to: [],
+      cc: [],
+    },
+    thread: {
+      replySubject: row.subject,
+      inReplyTo: "",
+      references: [],
+    },
   };
 }
 

@@ -139,6 +139,15 @@ Fetch one archived message in detail:
 cm read get 550e8400-e29b-41d4-a716-446655440000 --pretty
 ```
 
+Reply to one archived thread using the worker archive as the source of truth for recipients and threading:
+
+```bash
+cm reply 550e8400-e29b-41d4-a716-446655440000 \
+  --from ops@example.com \
+  --text "Following up on this thread." \
+  --dry-run --pretty
+```
+
 If you want the sent message to also land in your journal/archive flow, add a BCC to the journal address:
 
 ```bash
@@ -211,6 +220,13 @@ That gives you both:
 --dry-run                Print the payload instead of sending
 ```
 
+Reply mode adds:
+
+```text
+reply <id>               Reply using archived worker data
+--reply-all              Include archived To/Cc recipients
+```
+
 ## Daily Usage
 
 ### Send a plain text message
@@ -271,6 +287,25 @@ One message in detail:
 cm read get <message-row-id> --pretty
 ```
 
+Reply to that archived thread:
+
+```bash
+cm reply <message-row-id> \
+  --from ops@example.com \
+  --text "Following up on this thread." \
+  --dry-run --pretty
+```
+
+Reply-all with journaling:
+
+```bash
+cm reply <message-row-id> \
+  --from ops@example.com \
+  --reply-all \
+  --bcc journal@example.com \
+  --text "Looping everyone back in."
+```
+
 The worker read path uses the deployed Worker API, not `wrangler d1` or direct SQL access. Configure it with
 either CLI flags:
 
@@ -289,6 +324,9 @@ export CM_WORKER_API_TOKEN="your-worker-read-token"
 ```
 
 For local shell setup, copy `.env.example` to `.env`, fill in real values, and source it in your shell.
+
+`cm reply` uses that same authenticated worker read API to fetch archived participants plus thread headers, then
+reuses the normal Cloudflare Email Service send path for the outbound reply.
 
 ## Dry run
 

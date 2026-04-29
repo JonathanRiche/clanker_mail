@@ -20,6 +20,7 @@ const AppError = error{
     Usage,
     MissingConfig,
     MissingReadConfig,
+    NoReplyRecipients,
     InvalidArgument,
     InvalidCommand,
     InvalidHeader,
@@ -50,6 +51,7 @@ const SendCommand = struct {
     cc: std.ArrayList([]const u8) = .empty,
     bcc: std.ArrayList([]const u8) = .empty,
     headers: std.ArrayList(HeaderArg) = .empty,
+    owned_slices: std.ArrayList([]const u8) = .empty,
     attachments: std.ArrayList(AttachmentArg) = .empty,
     from: ?Sender = null,
     reply_to: ?[]const u8 = null,
@@ -65,6 +67,10 @@ const SendCommand = struct {
         self.cc.deinit(allocator);
         self.bcc.deinit(allocator);
         self.headers.deinit(allocator);
+        for (self.owned_slices.items) |slice| {
+            allocator.free(slice);
+        }
+        self.owned_slices.deinit(allocator);
         self.attachments.deinit(allocator);
     }
 };
@@ -87,6 +93,52 @@ const ReadCommand = struct {
     worker_api_token: ?[]const u8 = null,
     pretty: bool = false,
     action: ReadAction = .{ .list = .{} },
+};
+
+const ReplyCommand = struct {
+    account_id: ?[]const u8 = null,
+    api_token: ?[]const u8 = null,
+    worker_base_url: ?[]const u8 = null,
+    worker_api_token: ?[]const u8 = null,
+    id: []const u8,
+    from: ?Sender = null,
+    cc: std.ArrayList([]const u8) = .empty,
+    bcc: std.ArrayList([]const u8) = .empty,
+    reply_to: ?[]const u8 = null,
+    text: ?[]const u8 = null,
+    html: ?[]const u8 = null,
+    pretty: bool = false,
+    dry_run: bool = false,
+    reply_all: bool = false,
+
+    fn deinit(self: *ReplyCommand, allocator: std.mem.Allocator) void {
+        self.cc.deinit(allocator);
+        self.bcc.deinit(allocator);
+    }
+};
+
+const ReplyParticipants = struct {
+    from: []const []const u8 = &.{},
+    replyTo: []const []const u8 = &.{},
+    to: []const []const u8 = &.{},
+    cc: []const []const u8 = &.{},
+};
+
+const ReplyThreadContext = struct {
+    replySubject: []const u8 = "Re:",
+    inReplyTo: []const u8 = "",
+    references: []const []const u8 = &.{},
+};
+
+const ReplyMessageDetail = struct {
+    id: []const u8,
+    messageId: []const u8 = "",
+    participants: ReplyParticipants = .{},
+    thread: ReplyThreadContext = .{},
+};
+
+const ReplyMessageResponse = struct {
+    message: ReplyMessageDetail,
 };
 
 const RunContext = struct {
@@ -148,6 +200,9 @@ fn run(context: RunContext, args: []const []const u8) !ExitCode {
     if (std.mem.eql(u8, command_name, "read")) {
         return try runRead(context, args[2..]);
     }
+    if (std.mem.eql(u8, command_name, "reply")) {
+        return try runReply(context, args[2..]);
+    }
 
     var start_index: usize = 1;
     if (std.mem.eql(u8, command_name, "send")) {
@@ -184,6 +239,47 @@ fn runRead(context: RunContext, args: []const []const u8) !ExitCode {
 
     const response = try fetchReadRequest(context, command);
     try writeJsonOutput(context, response.body, command.pretty);
+
+    return if (response.status.class() == .success) .ok else .runtime;
+}
+
+fn runReply(context: RunContext, args: []const []const u8) !ExitCode {
+    var command = try parseReplyArgs(context, args);
+    defer command.deinit(context.allocator);
+
+    applyReplyEnvDefaults(context, &command);
+    try validateReplyCommand(command);
+
+    const read_command: ReadCommand = .{
+        .worker_base_url = command.worker_base_url,
+        .worker_api_token = command.worker_api_token,
+        .action = .{ .get = .{ .id = command.id } },
+    };
+    const archived_response = try fetchReadRequest(context, read_command);
+    if (archived_response.status.class() != .success) {
+        try writeJsonOutput(context, archived_response.body, command.pretty);
+        return .runtime;
+    }
+
+    const parsed = try std.json.parseFromSliceLeaky(
+        ReplyMessageResponse,
+        context.allocator,
+        archived_response.body,
+        .{ .ignore_unknown_fields = true },
+    );
+
+    var send_command = try buildReplySendCommand(context, command, parsed.message);
+    defer send_command.deinit(context.allocator);
+
+    const payload = try buildPayload(context, send_command);
+
+    if (send_command.dry_run) {
+        try writeJsonOutput(context, payload, send_command.pretty);
+        return .ok;
+    }
+
+    const response = try sendRequest(context, send_command, payload);
+    try writeJsonOutput(context, response.body, send_command.pretty);
 
     return if (response.status.class() == .success) .ok else .runtime;
 }
@@ -349,6 +445,108 @@ fn parseReadArgs(
     }
 }
 
+fn parseReplyArgs(context: RunContext, args: []const []const u8) !ReplyCommand {
+    if (args.len == 0) {
+        return error.Usage;
+    }
+    if (isHelpFlag(args[0])) {
+        try writeReplyUsage(context.stdout);
+        return error.HelpRequested;
+    }
+    if (std.mem.startsWith(u8, args[0], "--")) {
+        return error.Usage;
+    }
+
+    var command: ReplyCommand = .{
+        .id = args[0],
+    };
+    errdefer command.deinit(context.allocator);
+
+    var index: usize = 1;
+    while (index < args.len) : (index += 1) {
+        const arg = args[index];
+        if (isHelpFlag(arg)) {
+            try writeReplyUsage(context.stdout);
+            return error.HelpRequested;
+        }
+        if (std.mem.eql(u8, arg, "--pretty")) {
+            command.pretty = true;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--dry-run")) {
+            command.dry_run = true;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--reply-all")) {
+            command.reply_all = true;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--account-id")) {
+            command.account_id = try nextValue(args, &index, "--account-id");
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--api-token")) {
+            command.api_token = try nextValue(args, &index, "--api-token");
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--worker-base-url")) {
+            command.worker_base_url = try nextValue(args, &index, "--worker-base-url");
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--worker-api-token")) {
+            command.worker_api_token = try nextValue(args, &index, "--worker-api-token");
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--from")) {
+            const address = try nextValue(args, &index, "--from");
+            command.from = .{ .address = address };
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--from-name")) {
+            const name = try nextValue(args, &index, "--from-name");
+            if (command.from) |sender| {
+                command.from = .{ .address = sender.address, .name = name };
+            } else {
+                command.from = .{ .address = "", .name = name };
+            }
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--reply-to")) {
+            command.reply_to = try nextValue(args, &index, "--reply-to");
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--cc")) {
+            try command.cc.append(context.allocator, try nextValue(args, &index, "--cc"));
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--bcc")) {
+            try command.bcc.append(context.allocator, try nextValue(args, &index, "--bcc"));
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--text")) {
+            command.text = try nextValue(args, &index, "--text");
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--text-file")) {
+            command.text = try readInputPath(context, try nextValue(args, &index, "--text-file"));
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--html")) {
+            command.html = try nextValue(args, &index, "--html");
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--html-file")) {
+            command.html = try readInputPath(context, try nextValue(args, &index, "--html-file"));
+            continue;
+        }
+
+        try context.stderr.print("unknown argument: {s}\n", .{arg});
+        return error.InvalidArgument;
+    }
+
+    return command;
+}
+
 fn applyEnvDefaults(context: RunContext, command: *SendCommand) !void {
     if (command.account_id == null) {
         command.account_id = context.environ_map.get("CLOUDFLARE_ACCOUNT_ID");
@@ -359,6 +557,21 @@ fn applyEnvDefaults(context: RunContext, command: *SendCommand) !void {
 }
 
 fn applyReadEnvDefaults(context: RunContext, command: *ReadCommand) void {
+    if (command.worker_base_url == null) {
+        command.worker_base_url = context.environ_map.get(WORKER_BASE_URL_ENV);
+    }
+    if (command.worker_api_token == null) {
+        command.worker_api_token = context.environ_map.get(WORKER_API_TOKEN_ENV);
+    }
+}
+
+fn applyReplyEnvDefaults(context: RunContext, command: *ReplyCommand) void {
+    if (command.account_id == null) {
+        command.account_id = context.environ_map.get("CLOUDFLARE_ACCOUNT_ID");
+    }
+    if (command.api_token == null) {
+        command.api_token = context.environ_map.get("CLOUDFLARE_API_TOKEN");
+    }
     if (command.worker_base_url == null) {
         command.worker_base_url = context.environ_map.get(WORKER_BASE_URL_ENV);
     }
@@ -413,6 +626,196 @@ fn validateReadCommand(command: ReadCommand) !void {
     if (uri.scheme.len == 0 or uri.host == null) {
         return error.InvalidUrl;
     }
+}
+
+fn validateReplyCommand(command: ReplyCommand) !void {
+    const read_command: ReadCommand = .{
+        .worker_base_url = command.worker_base_url,
+        .worker_api_token = command.worker_api_token,
+    };
+    try validateReadCommand(read_command);
+
+    if (command.from == null) return error.Usage;
+    if (command.from.?.address.len == 0) return error.Usage;
+    if (command.text == null and command.html == null) return error.Usage;
+
+    if (!command.dry_run) {
+        if (command.account_id == null or command.account_id.?.len == 0) {
+            return error.MissingConfig;
+        }
+        if (command.api_token == null or command.api_token.?.len == 0) {
+            return error.MissingConfig;
+        }
+    }
+}
+
+fn buildReplySendCommand(
+    context: RunContext,
+    reply_command: ReplyCommand,
+    archived_message: ReplyMessageDetail,
+) !SendCommand {
+    var send_command: SendCommand = .{
+        .account_id = reply_command.account_id,
+        .api_token = reply_command.api_token,
+        .from = reply_command.from,
+        .reply_to = reply_command.reply_to,
+        .subject = archived_message.thread.replySubject,
+        .text = reply_command.text,
+        .html = reply_command.html,
+        .pretty = reply_command.pretty,
+        .dry_run = reply_command.dry_run,
+    };
+    errdefer send_command.deinit(context.allocator);
+
+    const primary_recipients = choosePrimaryReplyRecipients(
+        reply_command.from.?.address,
+        archived_message.participants,
+    );
+    try appendRecipientSlice(
+        &send_command.to,
+        context.allocator,
+        primary_recipients,
+        reply_command.from.?.address,
+        &.{},
+        &.{},
+    );
+
+    if (reply_command.reply_all) {
+        try appendRecipientSlice(
+            &send_command.to,
+            context.allocator,
+            archived_message.participants.to,
+            reply_command.from.?.address,
+            &.{},
+            &.{},
+        );
+        try appendRecipientSlice(
+            &send_command.cc,
+            context.allocator,
+            archived_message.participants.cc,
+            reply_command.from.?.address,
+            send_command.to.items,
+            &.{},
+        );
+    }
+
+    try appendRecipientSlice(
+        &send_command.cc,
+        context.allocator,
+        reply_command.cc.items,
+        null,
+        send_command.to.items,
+        &.{},
+    );
+    try appendRecipientSlice(
+        &send_command.bcc,
+        context.allocator,
+        reply_command.bcc.items,
+        null,
+        send_command.to.items,
+        send_command.cc.items,
+    );
+
+    if (send_command.to.items.len == 0) {
+        return error.NoReplyRecipients;
+    }
+
+    if (archived_message.thread.inReplyTo.len != 0) {
+        try send_command.headers.append(context.allocator, .{
+            .name = "In-Reply-To",
+            .value = archived_message.thread.inReplyTo,
+        });
+    }
+    if (archived_message.thread.references.len != 0) {
+        const joined_references = try joinHeaderValues(context.allocator, archived_message.thread.references);
+        try send_command.owned_slices.append(context.allocator, joined_references);
+        try send_command.headers.append(context.allocator, .{
+            .name = "References",
+            .value = joined_references,
+        });
+    }
+
+    return send_command;
+}
+
+fn choosePrimaryReplyRecipients(
+    from_address: []const u8,
+    participants: ReplyParticipants,
+) []const []const u8 {
+    const preferred = if (participants.replyTo.len != 0) participants.replyTo else participants.from;
+    if (preferred.len != 0 and !allRecipientsMatch(preferred, from_address)) {
+        return preferred;
+    }
+    if (participants.to.len != 0) {
+        return participants.to;
+    }
+    if (participants.cc.len != 0) {
+        return participants.cc;
+    }
+    return preferred;
+}
+
+fn allRecipientsMatch(addresses: []const []const u8, target: []const u8) bool {
+    if (addresses.len == 0) {
+        return false;
+    }
+    for (addresses) |address| {
+        if (!std.ascii.eqlIgnoreCase(address, target)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+fn appendRecipientSlice(
+    list: *std.ArrayList([]const u8),
+    allocator: std.mem.Allocator,
+    addresses: []const []const u8,
+    skip_address: ?[]const u8,
+    excluded: []const []const u8,
+    extra_excluded: []const []const u8,
+) !void {
+    for (addresses) |address| {
+        const trimmed = std.mem.trim(u8, address, " \t\r\n");
+        if (trimmed.len == 0) {
+            continue;
+        }
+        if (skip_address) |value| {
+            if (std.ascii.eqlIgnoreCase(trimmed, value)) {
+                continue;
+            }
+        }
+        if (containsAddress(excluded, trimmed) or
+            containsAddress(extra_excluded, trimmed) or
+            containsAddress(list.items, trimmed))
+        {
+            continue;
+        }
+        try list.append(allocator, trimmed);
+    }
+}
+
+fn containsAddress(addresses: []const []const u8, candidate: []const u8) bool {
+    for (addresses) |address| {
+        if (std.ascii.eqlIgnoreCase(address, candidate)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn joinHeaderValues(allocator: std.mem.Allocator, values: []const []const u8) ![]const u8 {
+    var writer: std.Io.Writer.Allocating = .init(allocator);
+    defer writer.deinit();
+
+    for (values, 0..) |value, index| {
+        if (index != 0) {
+            try writer.writer.writeByte(' ');
+        }
+        try writer.writer.writeAll(value);
+    }
+
+    return try writer.toOwnedSlice();
 }
 
 fn buildPayload(context: RunContext, command: SendCommand) ![]const u8 {
@@ -708,6 +1111,9 @@ fn printError(stderr: *std.Io.Writer, err: anyerror) !void {
         error.MissingReadConfig => try stderr.writeAll(
             "missing worker read config; set --worker-base-url/--worker-api-token or CM_WORKER_BASE_URL/CM_WORKER_API_TOKEN\n",
         ),
+        error.NoReplyRecipients => try stderr.writeAll(
+            "reply target resolution produced no recipients; check the archived message headers and --from address\n",
+        ),
         error.InvalidArgument => try stderr.writeAll("invalid argument\n"),
         error.InvalidCommand => try stderr.writeAll("invalid command; run with --help for usage\n"),
         error.InvalidHeader => try stderr.writeAll("invalid --header value; expected 'Name: Value'\n"),
@@ -733,6 +1139,7 @@ fn exitCodeForError(err: anyerror) ExitCode {
         => .usage,
         error.MissingConfig,
         error.MissingReadConfig,
+        error.NoReplyRecipients,
         => .runtime,
         else => .runtime,
     };
@@ -747,6 +1154,7 @@ fn writeUsage(stdout: *std.Io.Writer) !void {
         \\  clanker_mail send [options]
         \\  clanker_mail read [list] [options]
         \\  clanker_mail read get <id> [options]
+        \\  clanker_mail reply <id> [options]
         \\  clanker_mail [options]
         \\
         \\Send config:
@@ -787,6 +1195,19 @@ fn writeUsage(stdout: *std.Io.Writer) !void {
         \\  read get <id>            Fetch one archived message in detail
         \\  --limit <count>          Only for read list; 1-100 (default 20)
         \\
+        \\Reply mode:
+        \\  reply <id>               Reply using archived message thread context
+        \\  --from <email>           Sender address for the reply
+        \\  --from-name <name>       Optional sender display name
+        \\  --reply-to <email>       Optional reply-to address for your reply
+        \\  --cc <email>             Optional; repeatable
+        \\  --bcc <email>            Optional; repeatable
+        \\  --reply-all              Include archived To/Cc recipients
+        \\  --text <body>            Plain text reply body
+        \\  --text-file <path|->     Read plain text reply body from file or stdin
+        \\  --html <body>            HTML reply body
+        \\  --html-file <path|->     Read HTML reply body from file or stdin
+        \\
         \\Output:
         \\  --pretty                 Pretty-print JSON output
         \\  --dry-run                Print the request payload instead of sending
@@ -803,6 +1224,11 @@ fn writeUsage(stdout: *std.Io.Writer) !void {
         \\  clanker_mail read list --pretty
         \\
         \\  clanker_mail read get 550e8400-e29b-41d4-a716-446655440000 --pretty
+        \\
+        \\  clanker_mail reply 550e8400-e29b-41d4-a716-446655440000 \
+        \\    --from welcome@example.com \
+        \\    --text 'Following up on this thread.' \
+        \\    --dry-run --pretty
         \\
         \\  clanker_mail --payload-file payload.json --pretty
         \\
@@ -831,6 +1257,46 @@ fn writeReadUsage(stdout: *std.Io.Writer) !void {
         \\Options:
         \\  --limit <count>          Only for list; 1-100 (default 20)
         \\  --pretty                 Pretty-print JSON output
+        \\  --help                   Show this help
+        \\
+    );
+}
+
+fn writeReplyUsage(stdout: *std.Io.Writer) !void {
+    try stdout.writeAll(
+        \\Reply to an archived message thread using the deployed clanker_mail worker
+        \\as the source of truth for recipients and threading headers.
+        \\
+        \\Usage:
+        \\  clanker_mail reply <id> [options]
+        \\
+        \\Send config:
+        \\  --account-id <id>        Cloudflare account ID
+        \\  --api-token <token>      Cloudflare API token
+        \\                           Environment fallbacks:
+        \\                           CLOUDFLARE_ACCOUNT_ID
+        \\                           CLOUDFLARE_API_TOKEN
+        \\
+        \\Read config:
+        \\  --worker-base-url <url>  Worker base URL such as https://cm.example.workers.dev
+        \\  --worker-api-token <tok> Worker bearer token
+        \\                           Environment fallbacks:
+        \\                           CM_WORKER_BASE_URL
+        \\                           CM_WORKER_API_TOKEN
+        \\
+        \\Reply options:
+        \\  --from <email>           Sender address
+        \\  --from-name <name>       Optional sender display name
+        \\  --reply-to <email>       Optional reply-to address for your reply
+        \\  --cc <email>             Optional; repeatable
+        \\  --bcc <email>            Optional; repeatable
+        \\  --reply-all              Include archived To/Cc recipients
+        \\  --text <body>            Plain text reply body
+        \\  --text-file <path|->     Read plain text reply body from file or stdin
+        \\  --html <body>            HTML reply body
+        \\  --html-file <path|->     Read HTML reply body from file or stdin
+        \\  --pretty                 Pretty-print JSON output
+        \\  --dry-run                Print the request payload instead of sending
         \\  --help                   Show this help
         \\
     );
@@ -928,6 +1394,129 @@ test "parse read args accepts get subcommand" {
         .list => return error.TestUnexpectedResult,
     }
     try std.testing.expect(command.pretty);
+}
+
+test "parse reply args accepts archived reply options" {
+    var stdout_buffer: [256]u8 = undefined;
+    var stdout_writer = std.Io.Writer.fixed(&stdout_buffer);
+
+    var stderr_buffer: [256]u8 = undefined;
+    var stderr_writer = std.Io.Writer.fixed(&stderr_buffer);
+
+    var env_map = std.process.Environ.Map.init(std.testing.allocator);
+    defer env_map.deinit();
+
+    const context: RunContext = .{
+        .allocator = std.testing.allocator,
+        .http_allocator = std.testing.allocator,
+        .io = undefined,
+        .stdout = &stdout_writer,
+        .stderr = &stderr_writer,
+        .environ_map = &env_map,
+    };
+
+    var command = try parseReplyArgs(context, &.{
+        "message-123",
+        "--from",
+        "agent@example.com",
+        "--reply-all",
+        "--text",
+        "Following up.",
+    });
+    defer command.deinit(std.testing.allocator);
+
+    try std.testing.expect(command.reply_all);
+    try std.testing.expectEqualStrings("message-123", command.id);
+    try std.testing.expectEqualStrings("agent@example.com", command.from.?.address);
+    try std.testing.expectEqualStrings("Following up.", command.text.?);
+}
+
+test "reply command targets original recipients for self-authored archived mail" {
+    const context: RunContext = .{
+        .allocator = std.testing.allocator,
+        .http_allocator = std.testing.allocator,
+        .io = undefined,
+        .stdout = undefined,
+        .stderr = undefined,
+        .environ_map = undefined,
+    };
+
+    var reply_command: ReplyCommand = .{
+        .id = "message-123",
+        .from = .{ .address = "agent@example.com" },
+        .text = "Following up.",
+    };
+    defer reply_command.deinit(std.testing.allocator);
+
+    const archived_message: ReplyMessageDetail = .{
+        .id = "message-123",
+        .participants = .{
+            .from = &.{"agent@example.com"},
+            .to = &.{ "alice@example.com", "bob@example.com" },
+        },
+        .thread = .{
+            .replySubject = "Re: Status",
+            .inReplyTo = "<message-123@example.com>",
+            .references = &.{ "<root@example.com>", "<message-123@example.com>" },
+        },
+    };
+
+    var send_command = try buildReplySendCommand(context, reply_command, archived_message);
+    defer send_command.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), send_command.to.items.len);
+    try std.testing.expectEqualStrings("alice@example.com", send_command.to.items[0]);
+    try std.testing.expectEqualStrings("bob@example.com", send_command.to.items[1]);
+    try std.testing.expectEqualStrings("Re: Status", send_command.subject.?);
+    try std.testing.expectEqual(@as(usize, 2), send_command.headers.items.len);
+    try std.testing.expectEqualStrings("In-Reply-To", send_command.headers.items[0].name);
+    try std.testing.expectEqualStrings("<message-123@example.com>", send_command.headers.items[0].value);
+    try std.testing.expectEqualStrings("References", send_command.headers.items[1].name);
+    try std.testing.expectEqualStrings(
+        "<root@example.com> <message-123@example.com>",
+        send_command.headers.items[1].value,
+    );
+}
+
+test "reply all keeps other participants and excludes sender address" {
+    const context: RunContext = .{
+        .allocator = std.testing.allocator,
+        .http_allocator = std.testing.allocator,
+        .io = undefined,
+        .stdout = undefined,
+        .stderr = undefined,
+        .environ_map = undefined,
+    };
+
+    var reply_command: ReplyCommand = .{
+        .id = "message-456",
+        .from = .{ .address = "me@example.com" },
+        .text = "Reply all.",
+        .reply_all = true,
+    };
+    defer reply_command.deinit(std.testing.allocator);
+
+    const archived_message: ReplyMessageDetail = .{
+        .id = "message-456",
+        .participants = .{
+            .from = &.{"alice@example.com"},
+            .to = &.{ "me@example.com", "bob@example.com" },
+            .cc = &.{ "carol@example.com", "me@example.com" },
+        },
+        .thread = .{
+            .replySubject = "Re: Planning",
+            .inReplyTo = "<message-456@example.com>",
+        },
+    };
+
+    var send_command = try buildReplySendCommand(context, reply_command, archived_message);
+    defer send_command.deinit(std.testing.allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), send_command.to.items.len);
+    try std.testing.expectEqualStrings("alice@example.com", send_command.to.items[0]);
+    try std.testing.expectEqualStrings("bob@example.com", send_command.to.items[1]);
+    try std.testing.expectEqual(@as(usize, 1), send_command.cc.items.len);
+    try std.testing.expectEqualStrings("carol@example.com", send_command.cc.items[0]);
 }
 
 test "build read url trims trailing slash" {

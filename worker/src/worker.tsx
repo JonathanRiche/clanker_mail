@@ -7,7 +7,13 @@ import { Document } from "./app/document";
 import { loadConfig, configFromFormData, saveConfig } from "./lib/config";
 import { archiveMessage, maybeAutoReply, maybeForwardMessage, repoNameForMessage } from "./lib/email";
 import { getArchivedMessage, listArchivedMessages } from "./lib/storage";
-import type { DashboardModel, WorkerEnv } from "./lib/types";
+import type {
+  ArchivedMessageDetail,
+  ArchivedMessageParticipants,
+  ArchivedMessageThreadContext,
+  DashboardModel,
+  WorkerEnv,
+} from "./lib/types";
 
 const workerEnv = runtimeEnv as WorkerEnv;
 
@@ -91,7 +97,7 @@ async function handleReadApiRequest(request: Request, env: WorkerEnv): Promise<R
   if (!message) {
     return jsonError("message not found", 404);
   }
-  return Response.json({ message }, noStoreInit());
+  return Response.json({ message: withReplyContext(message) }, noStoreInit());
 }
 
 function dashboardModel(
@@ -150,4 +156,137 @@ function unauthorizedResponse(): Response {
   const response = jsonError("unauthorized", 401);
   response.headers.set("WWW-Authenticate", 'Bearer realm="clanker_mail"');
   return response;
+}
+
+function withReplyContext(message: ArchivedMessageDetail): ArchivedMessageDetail {
+  return {
+    ...message,
+    participants: archivedMessageParticipants(message),
+    thread: archivedMessageThread(message),
+  };
+}
+
+function archivedMessageParticipants(message: ArchivedMessageDetail): ArchivedMessageParticipants {
+  return {
+    from: parseAddressList(headerValue(message.headers, "from") ?? message.sender),
+    replyTo: parseAddressList(headerValue(message.headers, "reply-to") ?? ""),
+    to: parseAddressList(headerValue(message.headers, "to") ?? ""),
+    cc: parseAddressList(headerValue(message.headers, "cc") ?? ""),
+  };
+}
+
+function archivedMessageThread(message: ArchivedMessageDetail): ArchivedMessageThreadContext {
+  const messageId = (headerValue(message.headers, "message-id") ?? message.messageId).trim();
+  const references = parseMessageIdList(headerValue(message.headers, "references") ?? "");
+  const inReplyTo = parseMessageIdList(headerValue(message.headers, "in-reply-to") ?? "");
+  const threadReferences = uniqueValues([...references, ...inReplyTo, messageId].filter(Boolean));
+
+  return {
+    replySubject: replySubjectFor(message.subject),
+    inReplyTo: messageId,
+    references: threadReferences,
+  };
+}
+
+function replySubjectFor(subject: string): string {
+  const trimmed = subject.trim();
+  if (trimmed.length == 0) {
+    return "Re:";
+  }
+  return /^\s*re\s*:/i.test(trimmed) ? trimmed : `Re: ${trimmed}`;
+}
+
+function headerValue(headers: Record<string, string>, name: string): string | undefined {
+  const needle = name.toLowerCase();
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() == needle) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function parseAddressList(value: string): string[] {
+  const addresses: string[] = [];
+  for (const entry of splitHeaderList(value)) {
+    const address = extractAddress(entry);
+    if (!address) {
+      continue;
+    }
+    const normalized = address.toLowerCase();
+    if (!addresses.includes(normalized)) {
+      addresses.push(normalized);
+    }
+  }
+  return addresses;
+}
+
+function splitHeaderList(value: string): string[] {
+  const parts: string[] = [];
+  let start = 0;
+  let inQuote = false;
+  let angleDepth = 0;
+  let escaped = false;
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (char == "\\" && inQuote) {
+      escaped = true;
+      continue;
+    }
+    if (char == "\"") {
+      inQuote = !inQuote;
+      continue;
+    }
+    if (!inQuote) {
+      if (char == "<") {
+        angleDepth += 1;
+        continue;
+      }
+      if (char == ">" && angleDepth > 0) {
+        angleDepth -= 1;
+        continue;
+      }
+      if (char == "," && angleDepth == 0) {
+        parts.push(value.slice(start, index).trim());
+        start = index + 1;
+      }
+    }
+  }
+
+  parts.push(value.slice(start).trim());
+  return parts.filter((part) => part.length > 0);
+}
+
+function extractAddress(value: string): string | null {
+  const angleMatch = value.match(/<([^<>\s]+@[^<>\s]+)>/i);
+  if (angleMatch) {
+    return angleMatch[1];
+  }
+
+  const bareMatch = value.match(/[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}/i);
+  return bareMatch ? bareMatch[0] : null;
+}
+
+function parseMessageIdList(value: string): string[] {
+  const matches = value.match(/<[^<>]+>/g);
+  if (!matches) {
+    const trimmed = value.trim();
+    return trimmed.length == 0 ? [] : [trimmed];
+  }
+  return uniqueValues(matches.map((match) => match.trim()).filter(Boolean));
+}
+
+function uniqueValues(values: string[]): string[] {
+  const unique: string[] = [];
+  for (const value of values) {
+    if (!unique.includes(value)) {
+      unique.push(value);
+    }
+  }
+  return unique;
 }
