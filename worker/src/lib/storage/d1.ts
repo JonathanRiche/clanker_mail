@@ -6,35 +6,40 @@ import type {
 
 const CONFIG_KEY = "app";
 
-const SCHEMA_SQL = `
-CREATE TABLE IF NOT EXISTS worker_config (
-  config_key TEXT PRIMARY KEY,
-  value_json TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS email_messages (
-  id TEXT PRIMARY KEY,
-  archive_group TEXT NOT NULL,
-  entry_path TEXT NOT NULL,
-  archived_at TEXT NOT NULL,
-  message_id TEXT NOT NULL,
-  sender TEXT NOT NULL,
-  recipient TEXT NOT NULL,
-  subject TEXT NOT NULL,
-  raw_size INTEGER NOT NULL,
-  raw_eml TEXT NOT NULL,
-  headers_json TEXT NOT NULL,
-  metadata_json TEXT NOT NULL,
-  summary_md TEXT NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_email_messages_archive_group
-  ON email_messages (archive_group, archived_at DESC);
-
-CREATE INDEX IF NOT EXISTS idx_email_messages_recipient
-  ON email_messages (recipient, archived_at DESC);
-`;
+const SCHEMA_STATEMENTS = [
+  `
+    CREATE TABLE IF NOT EXISTS worker_config (
+      config_key TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `,
+  `
+    CREATE TABLE IF NOT EXISTS email_messages (
+      id TEXT PRIMARY KEY,
+      archive_group TEXT NOT NULL,
+      entry_path TEXT NOT NULL,
+      archived_at TEXT NOT NULL,
+      message_id TEXT NOT NULL,
+      sender TEXT NOT NULL,
+      recipient TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      raw_size INTEGER NOT NULL,
+      raw_eml TEXT NOT NULL,
+      headers_json TEXT NOT NULL,
+      metadata_json TEXT NOT NULL,
+      summary_md TEXT NOT NULL
+    )
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS idx_email_messages_archive_group
+      ON email_messages (archive_group, archived_at DESC)
+  `,
+  `
+    CREATE INDEX IF NOT EXISTS idx_email_messages_recipient
+      ON email_messages (recipient, archived_at DESC)
+  `,
+] as const;
 
 let schema_ready: Promise<void> | null = null;
 
@@ -207,8 +212,7 @@ export async function getArchivedMessage(
 
 async function ensureSchema(env: WorkerEnv): Promise<void> {
   if (!schema_ready) {
-    schema_ready = env.DB.exec(SCHEMA_SQL)
-      .then(() => {})
+    schema_ready = initializeSchema(env)
       .catch((error: unknown) => {
         schema_ready = null;
         throw error;
@@ -216,6 +220,12 @@ async function ensureSchema(env: WorkerEnv): Promise<void> {
   }
 
   await schema_ready;
+}
+
+async function initializeSchema(env: WorkerEnv): Promise<void> {
+  for (const statement of SCHEMA_STATEMENTS) {
+    await env.DB.prepare(statement.trim()).run();
+  }
 }
 
 interface ArchivedMessageListRow {

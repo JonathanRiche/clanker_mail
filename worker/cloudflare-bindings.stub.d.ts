@@ -46,6 +46,7 @@ declare interface SendEmail {
 
 declare interface D1PreparedStatement {
   bind(...values: unknown[]): D1PreparedStatement;
+  all<T = Record<string, unknown>>(): Promise<{ results?: T[] }>;
   first<T = Record<string, unknown>>(): Promise<T | null>;
   run(): Promise<unknown>;
 }
