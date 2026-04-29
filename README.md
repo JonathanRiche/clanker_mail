@@ -72,7 +72,7 @@ The more advanced agent-driven setup is:
 ## Install
 
 ```bash
-zig build install -Doptimize=ReleaseFast --prefix "/home/rtg/.local"
+mise run build
 ```
 
 That installs the CLI to:
