@@ -1,7 +1,11 @@
 .zig-cache/
 zig-out/
+.env
+.env.local
 worker/.wrangler/
 worker/.vite/
+worker/.dev.vars
+worker/.dev.vars.local
 worker/dist/
 worker/node_modules/
 worker/worker-configuration.d.ts

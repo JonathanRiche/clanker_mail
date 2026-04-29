@@ -1,4 +1,8 @@
-import type { WorkerEnv } from "../types";
+import type {
+  ArchivedMessageDetail,
+  ArchivedMessageListItem,
+  WorkerEnv,
+} from "../types";
 
 const CONFIG_KEY = "app";
 
@@ -121,6 +125,75 @@ export async function writeArchivedMessage(
     .run();
 }
 
+export async function listArchivedMessages(
+  env: WorkerEnv,
+  limit: number,
+): Promise<ArchivedMessageListItem[]> {
+  await ensureSchema(env);
+
+  const result = await env.DB
+    .prepare(`
+      SELECT
+        id,
+        archive_group,
+        entry_path,
+        archived_at,
+        message_id,
+        sender,
+        recipient,
+        subject,
+        raw_size
+      FROM email_messages
+      ORDER BY archived_at DESC
+      LIMIT ?1
+    `)
+    .bind(limit)
+    .all<ArchivedMessageListRow>();
+
+  return (result.results ?? []).map(toArchivedMessageListItem);
+}
+
+export async function getArchivedMessage(
+  env: WorkerEnv,
+  id: string,
+): Promise<ArchivedMessageDetail | null> {
+  await ensureSchema(env);
+
+  const row = await env.DB
+    .prepare(`
+      SELECT
+        id,
+        archive_group,
+        entry_path,
+        archived_at,
+        message_id,
+        sender,
+        recipient,
+        subject,
+        raw_size,
+        raw_eml,
+        headers_json,
+        metadata_json,
+        summary_md
+      FROM email_messages
+      WHERE id = ?1
+    `)
+    .bind(id)
+    .first<ArchivedMessageDetailRow>();
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    ...toArchivedMessageListItem(row),
+    rawEml: row.raw_eml,
+    headers: parseHeaders(row.headers_json),
+    metadata: parseMetadata(row.metadata_json),
+    summaryMd: row.summary_md,
+  };
+}
+
 async function ensureSchema(env: WorkerEnv): Promise<void> {
   if (!schema_ready) {
     schema_ready = env.DB.exec(SCHEMA_SQL)
@@ -132,4 +205,55 @@ async function ensureSchema(env: WorkerEnv): Promise<void> {
   }
 
   await schema_ready;
+}
+
+interface ArchivedMessageListRow {
+  id: string;
+  archive_group: string;
+  entry_path: string;
+  archived_at: string;
+  message_id: string;
+  sender: string;
+  recipient: string;
+  subject: string;
+  raw_size: number;
+}
+
+interface ArchivedMessageDetailRow extends ArchivedMessageListRow {
+  raw_eml: string;
+  headers_json: string;
+  metadata_json: string;
+  summary_md: string;
+}
+
+function toArchivedMessageListItem(row: ArchivedMessageListRow): ArchivedMessageListItem {
+  return {
+    id: row.id,
+    archiveGroup: row.archive_group,
+    entryPath: row.entry_path,
+    archivedAt: row.archived_at,
+    messageId: row.message_id,
+    sender: row.sender,
+    recipient: row.recipient,
+    subject: row.subject,
+    rawSize: row.raw_size,
+  };
+}
+
+function parseHeaders(value: string): Record<string, string> {
+  const parsed = JSON.parse(value);
+  return isStringRecord(parsed) ? parsed : {};
+}
+
+function parseMetadata(value: string): Record<string, unknown> {
+  const parsed = JSON.parse(value);
+  return isRecord(parsed) ? parsed : {};
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return isRecord(value) && Object.values(value).every((entry) => typeof entry == "string");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value == "object" && value !== null;
 }

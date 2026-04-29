@@ -8,6 +8,25 @@ export interface AutoReplyConfig {
   html: string;
 }
 
+export interface ArchivedMessageListItem {
+  id: string;
+  archiveGroup: string;
+  entryPath: string;
+  archivedAt: string;
+  messageId: string;
+  sender: string;
+  recipient: string;
+  subject: string;
+  rawSize: number;
+}
+
+export interface ArchivedMessageDetail extends ArchivedMessageListItem {
+  rawEml: string;
+  headers: Record<string, string>;
+  metadata: Record<string, unknown>;
+  summaryMd: string;
+}
+
 export interface AppConfig {
   controlRepo: string;
   archiveRepoPrefix: string;
@@ -29,6 +48,7 @@ export interface WorkerEnv {
   DB: D1Database;
   ARTIFACTS?: Artifacts;
   EMAIL: SendEmail;
+  CM_READ_API_TOKEN?: string;
   CM_DEFAULT_FORWARD_TO: string;
   CM_DEFAULT_JOURNAL_ADDRESS: string;
   CM_DEFAULT_CONTROL_REPO: string;

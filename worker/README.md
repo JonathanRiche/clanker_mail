@@ -20,6 +20,13 @@ The Worker has two entrypoints in one deployment:
 - `fetch`: RWSDK UI and JSON config endpoints
 - `email`: Email Routing handler for inbound mail
 
+The productized read path is exposed from `fetch`:
+
+- `GET /api/messages?limit=20`
+- `GET /api/messages/:id`
+
+Both endpoints require `Authorization: Bearer <CM_READ_API_TOKEN>`.
+
 Configuration is stored in D1:
 
 ```text
@@ -131,6 +138,7 @@ You still need to:
 - create or choose a D1 database
 - enable Email Routing
 - enable Email Sending if you want auto-replies
+- set a Worker secret for `CM_READ_API_TOKEN`
 - route a journal mailbox to this Worker in the Cloudflare dashboard
 
 The inbound email route is configured in Cloudflare Email Routing, not as a top-level `email` field in
@@ -138,6 +146,14 @@ The inbound email route is configured in Cloudflare Email Routing, not as a top-
 
 The default journal address is intentionally blank. Set your real journal mailbox in Cloudflare Email Routing and
 then save that same address in the Worker UI after deployment instead of committing it to git.
+
+For local development, copy `.dev.vars.example` to `.dev.vars` and set a token there. For deployed environments,
+use Wrangler secrets instead of tracked config:
+
+```bash
+cd worker
+npx wrangler secret put CM_READ_API_TOKEN
+```
 
 ### 5. Run the UI locally
 
@@ -153,6 +169,7 @@ npm run dev
 2. The `email()` handler reads the message metadata and raw MIME.
 3. The Worker archives the message into D1.
 4. The Worker optionally forwards the message and/or sends an auto-reply.
+5. `cm read` fetches recent messages or one message by ID through the authenticated Worker API.
 
 ### Outbound mail
 
@@ -165,6 +182,7 @@ That gives you a sent-mail trail without relying on a sent-mail REST endpoint.
 
 ## Notes
 
-- The UI lives at `/`, and `/config` exposes the current routing profile as JSON for agent tooling.
+- The UI lives at `/`, `/config` exposes the current routing profile as JSON for agent tooling, and `/api/messages`
+  is the authenticated read surface for `cm`.
 - D1 is a reasonable short-term fallback, but large raw MIME payloads and attachments are the first pressure point.
 - The code is intended as a starting point; once Artifacts access lands, swap the storage layer instead of the whole Worker.

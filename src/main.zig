@@ -4,6 +4,10 @@ const std = @import("std");
 
 const VERSION = "0.1.0";
 const USER_AGENT = "clanker_mail/" ++ VERSION;
+const DEFAULT_READ_LIMIT: usize = 20;
+const MAX_READ_LIMIT: usize = 100;
+const WORKER_BASE_URL_ENV = "CM_WORKER_BASE_URL";
+const WORKER_API_TOKEN_ENV = "CM_WORKER_API_TOKEN";
 
 const ExitCode = enum(u8) {
     ok = 0,
@@ -15,9 +19,13 @@ const AppError = error{
     HelpRequested,
     Usage,
     MissingConfig,
+    MissingReadConfig,
     InvalidArgument,
+    InvalidCommand,
     InvalidHeader,
+    InvalidInteger,
     InvalidMode,
+    InvalidUrl,
     MissingValue,
 };
 
@@ -59,6 +67,26 @@ const SendCommand = struct {
         self.headers.deinit(allocator);
         self.attachments.deinit(allocator);
     }
+};
+
+const ReadListOptions = struct {
+    limit: usize = DEFAULT_READ_LIMIT,
+};
+
+const ReadGetOptions = struct {
+    id: []const u8,
+};
+
+const ReadAction = union(enum) {
+    list: ReadListOptions,
+    get: ReadGetOptions,
+};
+
+const ReadCommand = struct {
+    worker_base_url: ?[]const u8 = null,
+    worker_api_token: ?[]const u8 = null,
+    pretty: bool = false,
+    action: ReadAction = .{ .list = .{} },
 };
 
 const RunContext = struct {
@@ -117,10 +145,16 @@ fn run(context: RunContext, args: []const []const u8) !ExitCode {
         try context.stdout.print("{s}\n", .{VERSION});
         return .ok;
     }
+    if (std.mem.eql(u8, command_name, "read")) {
+        return try runRead(context, args[2..]);
+    }
 
     var start_index: usize = 1;
     if (std.mem.eql(u8, command_name, "send")) {
         start_index = 2;
+    } else if (!std.mem.startsWith(u8, command_name, "--")) {
+        try context.stderr.print("unknown command: {s}\n", .{command_name});
+        return error.InvalidCommand;
     }
 
     var command = SendCommand{};
@@ -137,6 +171,18 @@ fn run(context: RunContext, args: []const []const u8) !ExitCode {
     }
 
     const response = try sendRequest(context, command, payload);
+    try writeJsonOutput(context, response.body, command.pretty);
+
+    return if (response.status.class() == .success) .ok else .runtime;
+}
+
+fn runRead(context: RunContext, args: []const []const u8) !ExitCode {
+    var command = ReadCommand{};
+    try parseReadArgs(context, args, &command);
+    applyReadEnvDefaults(context, &command);
+    try validateReadCommand(command);
+
+    const response = try fetchReadRequest(context, command);
     try writeJsonOutput(context, response.body, command.pretty);
 
     return if (response.status.class() == .success) .ok else .runtime;
@@ -245,12 +291,79 @@ fn parseSendArgs(
     }
 }
 
+fn parseReadArgs(
+    context: RunContext,
+    args: []const []const u8,
+    command: *ReadCommand,
+) !void {
+    var index: usize = 0;
+    if (args.len != 0 and !std.mem.startsWith(u8, args[0], "--")) {
+        const subcommand = args[0];
+        if (isHelpFlag(subcommand)) {
+            try writeReadUsage(context.stdout);
+            return error.HelpRequested;
+        }
+        if (std.mem.eql(u8, subcommand, "list")) {
+            index = 1;
+        } else if (std.mem.eql(u8, subcommand, "get")) {
+            if (args.len < 2 or std.mem.startsWith(u8, args[1], "--")) {
+                return error.Usage;
+            }
+            command.action = .{ .get = .{ .id = args[1] } };
+            index = 2;
+        } else {
+            try context.stderr.print("unknown read command: {s}\n", .{subcommand});
+            return error.InvalidCommand;
+        }
+    }
+
+    while (index < args.len) : (index += 1) {
+        const arg = args[index];
+        if (isHelpFlag(arg)) {
+            try writeReadUsage(context.stdout);
+            return error.HelpRequested;
+        }
+        if (std.mem.eql(u8, arg, "--pretty")) {
+            command.pretty = true;
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--worker-base-url")) {
+            command.worker_base_url = try nextValue(args, &index, "--worker-base-url");
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--worker-api-token")) {
+            command.worker_api_token = try nextValue(args, &index, "--worker-api-token");
+            continue;
+        }
+        if (std.mem.eql(u8, arg, "--limit")) {
+            switch (command.action) {
+                .list => |*options| {
+                    options.limit = try parseReadLimit(try nextValue(args, &index, "--limit"));
+                },
+                .get => return error.InvalidArgument,
+            }
+            continue;
+        }
+
+        return error.InvalidArgument;
+    }
+}
+
 fn applyEnvDefaults(context: RunContext, command: *SendCommand) !void {
     if (command.account_id == null) {
         command.account_id = context.environ_map.get("CLOUDFLARE_ACCOUNT_ID");
     }
     if (command.api_token == null) {
         command.api_token = context.environ_map.get("CLOUDFLARE_API_TOKEN");
+    }
+}
+
+fn applyReadEnvDefaults(context: RunContext, command: *ReadCommand) void {
+    if (command.worker_base_url == null) {
+        command.worker_base_url = context.environ_map.get(WORKER_BASE_URL_ENV);
+    }
+    if (command.worker_api_token == null) {
+        command.worker_api_token = context.environ_map.get(WORKER_API_TOKEN_ENV);
     }
 }
 
@@ -284,6 +397,21 @@ fn validateCommand(command: SendCommand) !void {
         if (command.api_token == null or command.api_token.?.len == 0) {
             return error.MissingConfig;
         }
+    }
+}
+
+fn validateReadCommand(command: ReadCommand) !void {
+    if (command.worker_base_url == null or command.worker_base_url.?.len == 0) {
+        return error.MissingReadConfig;
+    }
+    if (command.worker_api_token == null or command.worker_api_token.?.len == 0) {
+        return error.MissingReadConfig;
+    }
+
+    const worker_base_url = command.worker_base_url.?;
+    const uri = std.Uri.parse(worker_base_url) catch return error.InvalidUrl;
+    if (uri.scheme.len == 0 or uri.host == null) {
+        return error.InvalidUrl;
     }
 }
 
@@ -410,6 +538,39 @@ const HttpResponse = struct {
     body: []const u8,
 };
 
+fn fetchReadRequest(context: RunContext, command: ReadCommand) !HttpResponse {
+    const url = try buildReadUrl(context.allocator, command);
+    const auth_header = try std.fmt.allocPrint(
+        context.allocator,
+        "Bearer {s}",
+        .{command.worker_api_token.?},
+    );
+
+    var client: std.http.Client = .{
+        .allocator = context.http_allocator,
+        .io = context.io,
+    };
+    defer client.deinit();
+
+    var response_buffer: std.Io.Writer.Allocating = .init(context.allocator);
+    defer response_buffer.deinit();
+
+    const result = try client.fetch(.{
+        .location = .{ .url = url },
+        .method = .GET,
+        .headers = .{
+            .authorization = .{ .override = auth_header },
+            .user_agent = .{ .override = USER_AGENT },
+        },
+        .response_writer = &response_buffer.writer,
+    });
+
+    return .{
+        .status = result.status,
+        .body = try response_buffer.toOwnedSlice(),
+    };
+}
+
 fn sendRequest(context: RunContext, command: SendCommand, payload: []const u8) !HttpResponse {
     const url = try std.fmt.allocPrint(
         context.allocator,
@@ -442,6 +603,23 @@ fn sendRequest(context: RunContext, command: SendCommand, payload: []const u8) !
     return .{
         .status = result.status,
         .body = try response_buffer.toOwnedSlice(),
+    };
+}
+
+fn buildReadUrl(allocator: std.mem.Allocator, command: ReadCommand) ![]const u8 {
+    const base_url = std.mem.trimEnd(u8, command.worker_base_url.?, "/");
+
+    return switch (command.action) {
+        .list => |options| std.fmt.allocPrint(
+            allocator,
+            "{s}/api/messages?limit={d}",
+            .{ base_url, options.limit },
+        ),
+        .get => |options| std.fmt.allocPrint(
+            allocator,
+            "{s}/api/messages/{s}",
+            .{ base_url, options.id },
+        ),
     };
 }
 
@@ -499,6 +677,14 @@ fn parseHeaderArg(raw: []const u8) !HeaderArg {
     };
 }
 
+fn parseReadLimit(raw: []const u8) !usize {
+    const limit = std.fmt.parseUnsigned(usize, raw, 10) catch return error.InvalidInteger;
+    if (limit == 0 or limit > MAX_READ_LIMIT) {
+        return error.InvalidInteger;
+    }
+    return limit;
+}
+
 fn readInputPath(context: RunContext, path: []const u8) ![]const u8 {
     if (std.mem.eql(u8, path, "-")) {
         var stdin_buffer: [4096]u8 = undefined;
@@ -519,9 +705,15 @@ fn printError(stderr: *std.Io.Writer, err: anyerror) !void {
         error.MissingConfig => try stderr.writeAll(
             "missing Cloudflare credentials; set --account-id/--api-token or CLOUDFLARE_ACCOUNT_ID/CLOUDFLARE_API_TOKEN\n",
         ),
+        error.MissingReadConfig => try stderr.writeAll(
+            "missing worker read config; set --worker-base-url/--worker-api-token or CM_WORKER_BASE_URL/CM_WORKER_API_TOKEN\n",
+        ),
         error.InvalidArgument => try stderr.writeAll("invalid argument\n"),
+        error.InvalidCommand => try stderr.writeAll("invalid command; run with --help for usage\n"),
         error.InvalidHeader => try stderr.writeAll("invalid --header value; expected 'Name: Value'\n"),
+        error.InvalidInteger => try stderr.writeAll("invalid integer value\n"),
         error.InvalidMode => try stderr.writeAll("raw payload mode cannot be mixed with message-building flags\n"),
+        error.InvalidUrl => try stderr.writeAll("invalid worker base URL\n"),
         error.MissingValue => try stderr.writeAll("option is missing a value\n"),
         else => try stderr.print("error: {s}\n", .{@errorName(err)}),
     }
@@ -532,29 +724,44 @@ fn exitCodeForError(err: anyerror) ExitCode {
         error.HelpRequested => .ok,
         error.Usage,
         error.InvalidArgument,
+        error.InvalidCommand,
         error.InvalidHeader,
+        error.InvalidInteger,
         error.InvalidMode,
+        error.InvalidUrl,
         error.MissingValue,
         => .usage,
-        error.MissingConfig => .runtime,
+        error.MissingConfig,
+        error.MissingReadConfig,
+        => .runtime,
         else => .runtime,
     };
 }
 
 fn writeUsage(stdout: *std.Io.Writer) !void {
     try stdout.writeAll(
-        \\clanker_mail sends email through the Cloudflare Email Service REST API.
+        \\clanker_mail sends email through the Cloudflare Email Service REST API
+        \\and can read archived inbound mail from a deployed clanker_mail worker.
         \\
         \\Usage:
         \\  clanker_mail send [options]
+        \\  clanker_mail read [list] [options]
+        \\  clanker_mail read get <id> [options]
         \\  clanker_mail [options]
         \\
-        \\Config:
+        \\Send config:
         \\  --account-id <id>        Cloudflare account ID
         \\  --api-token <token>      Cloudflare API token
         \\                           Environment fallbacks:
         \\                           CLOUDFLARE_ACCOUNT_ID
         \\                           CLOUDFLARE_API_TOKEN
+        \\
+        \\Read config:
+        \\  --worker-base-url <url>  Worker base URL such as https://cm.example.workers.dev
+        \\  --worker-api-token <tok> Worker bearer token
+        \\                           Environment fallbacks:
+        \\                           CM_WORKER_BASE_URL
+        \\                           CM_WORKER_API_TOKEN
         \\
         \\Message mode:
         \\  --to <email>             Repeat for multiple recipients
@@ -575,6 +782,11 @@ fn writeUsage(stdout: *std.Io.Writer) !void {
         \\  --payload-json <json>    Send an exact Cloudflare request body
         \\  --payload-file <path|->  Read the JSON body from file or stdin
         \\
+        \\Read mode:
+        \\  read list                List recent archived messages
+        \\  read get <id>            Fetch one archived message in detail
+        \\  --limit <count>          Only for read list; 1-100 (default 20)
+        \\
         \\Output:
         \\  --pretty                 Pretty-print JSON output
         \\  --dry-run                Print the request payload instead of sending
@@ -588,7 +800,38 @@ fn writeUsage(stdout: *std.Io.Writer) !void {
         \\    --subject 'Welcome' \
         \\    --text 'Thanks for signing up.'
         \\
+        \\  clanker_mail read list --pretty
+        \\
+        \\  clanker_mail read get 550e8400-e29b-41d4-a716-446655440000 --pretty
+        \\
         \\  clanker_mail --payload-file payload.json --pretty
+        \\
+    );
+}
+
+fn writeReadUsage(stdout: *std.Io.Writer) !void {
+    try stdout.writeAll(
+        \\Read archived inbound mail from a deployed clanker_mail worker.
+        \\
+        \\Usage:
+        \\  clanker_mail read [list] [options]
+        \\  clanker_mail read get <id> [options]
+        \\
+        \\Config:
+        \\  --worker-base-url <url>  Worker base URL such as https://cm.example.workers.dev
+        \\  --worker-api-token <tok> Worker bearer token
+        \\                           Environment fallbacks:
+        \\                           CM_WORKER_BASE_URL
+        \\                           CM_WORKER_API_TOKEN
+        \\
+        \\Commands:
+        \\  list                     List recent archived messages
+        \\  get <id>                 Fetch one archived message in detail
+        \\
+        \\Options:
+        \\  --limit <count>          Only for list; 1-100 (default 20)
+        \\  --pretty                 Pretty-print JSON output
+        \\  --help                   Show this help
         \\
     );
 }
@@ -627,4 +870,78 @@ test "validate command rejects mixed raw payload mode" {
     command.payload_json = "{}";
     try command.to.append(std.testing.allocator, "user@example.com");
     try std.testing.expectError(error.InvalidMode, validateCommand(command));
+}
+
+test "parse read args defaults to list mode" {
+    var stdout_buffer: [256]u8 = undefined;
+    var stdout_writer = std.Io.Writer.fixed(&stdout_buffer);
+
+    var stderr_buffer: [256]u8 = undefined;
+    var stderr_writer = std.Io.Writer.fixed(&stderr_buffer);
+
+    var env_map = std.process.Environ.Map.init(std.testing.allocator);
+    defer env_map.deinit();
+
+    const context: RunContext = .{
+        .allocator = std.testing.allocator,
+        .http_allocator = std.testing.allocator,
+        .io = undefined,
+        .stdout = &stdout_writer,
+        .stderr = &stderr_writer,
+        .environ_map = &env_map,
+    };
+
+    var command = ReadCommand{};
+    try parseReadArgs(context, &.{ "--limit", "5", "--pretty" }, &command);
+
+    try std.testing.expect(command.pretty);
+    switch (command.action) {
+        .list => |options| try std.testing.expectEqual(@as(usize, 5), options.limit),
+        .get => return error.TestUnexpectedResult,
+    }
+}
+
+test "parse read args accepts get subcommand" {
+    var stdout_buffer: [256]u8 = undefined;
+    var stdout_writer = std.Io.Writer.fixed(&stdout_buffer);
+
+    var stderr_buffer: [256]u8 = undefined;
+    var stderr_writer = std.Io.Writer.fixed(&stderr_buffer);
+
+    var env_map = std.process.Environ.Map.init(std.testing.allocator);
+    defer env_map.deinit();
+
+    const context: RunContext = .{
+        .allocator = std.testing.allocator,
+        .http_allocator = std.testing.allocator,
+        .io = undefined,
+        .stdout = &stdout_writer,
+        .stderr = &stderr_writer,
+        .environ_map = &env_map,
+    };
+
+    var command = ReadCommand{};
+    try parseReadArgs(context, &.{ "get", "message-123", "--pretty" }, &command);
+
+    switch (command.action) {
+        .get => |options| try std.testing.expectEqualStrings("message-123", options.id),
+        .list => return error.TestUnexpectedResult,
+    }
+    try std.testing.expect(command.pretty);
+}
+
+test "build read url trims trailing slash" {
+    const command: ReadCommand = .{
+        .worker_base_url = "https://mail.example.workers.dev/",
+        .worker_api_token = "token",
+        .action = .{ .list = .{ .limit = 3 } },
+    };
+
+    const url = try buildReadUrl(std.testing.allocator, command);
+    defer std.testing.allocator.free(url);
+
+    try std.testing.expectEqualStrings(
+        "https://mail.example.workers.dev/api/messages?limit=3",
+        url,
+    );
 }

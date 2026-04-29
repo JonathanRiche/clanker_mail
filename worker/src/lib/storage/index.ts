@@ -1,12 +1,19 @@
 import type { WorkerEnv } from "../types";
 
 import {
+  getArchivedMessage,
+  listArchivedMessages,
   readConfigDocument,
   writeArchivedMessage,
   writeConfigDocument,
 } from "./d1";
 
-export { readConfigDocument, writeConfigDocument };
+export {
+  getArchivedMessage,
+  listArchivedMessages,
+  readConfigDocument,
+  writeConfigDocument,
+};
 
 export async function archiveStoredMessage(
   env: WorkerEnv,

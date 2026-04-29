@@ -96,9 +96,12 @@ This repo is still named `clanker_mail`, but the installed executable is abbrevi
 ```bash
 export CLOUDFLARE_ACCOUNT_ID="your-account-id"
 export CLOUDFLARE_API_TOKEN="your-api-token"
+export CM_WORKER_BASE_URL="https://your-worker.example.workers.dev"
+export CM_WORKER_API_TOKEN="your-worker-read-token"
 ```
 
 If those are already set in the environment, you do **not** need to pass `--account-id` or `--api-token`.
+The worker values are only needed when you use `cm read`.
 
 You only need the flags when:
 
@@ -122,6 +125,18 @@ cm \
   --to user@example.com \
   --subject "Welcome" \
   --text "Thanks for signing up."
+```
+
+List recent archived inbound mail from the deployed worker:
+
+```bash
+cm read list --pretty
+```
+
+Fetch one archived message in detail:
+
+```bash
+cm read get 550e8400-e29b-41d4-a716-446655440000 --pretty
 ```
 
 If you want the sent message to also land in your journal/archive flow, add a BCC to the journal address:
@@ -241,6 +256,39 @@ cm \
   --text-file body.txt \
   --html-file body.html
 ```
+
+### Read archived mail from the worker
+
+Recent messages:
+
+```bash
+cm read list --limit 10 --pretty
+```
+
+One message in detail:
+
+```bash
+cm read get <message-row-id> --pretty
+```
+
+The worker read path uses the deployed Worker API, not `wrangler d1` or direct SQL access. Configure it with
+either CLI flags:
+
+```bash
+cm read list \
+  --worker-base-url "https://your-worker.example.workers.dev" \
+  --worker-api-token "$CM_WORKER_API_TOKEN" \
+  --pretty
+```
+
+or environment variables:
+
+```bash
+export CM_WORKER_BASE_URL="https://your-worker.example.workers.dev"
+export CM_WORKER_API_TOKEN="your-worker-read-token"
+```
+
+For local shell setup, copy `.env.example` to `.env`, fill in real values, and source it in your shell.
 
 ## Dry run
 
